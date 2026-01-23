@@ -1215,22 +1215,24 @@ function renderHistory() {
 
 // 히스토리 a-1. metadata 기준 중복 제거 (가장 이른 timestamp만 남김)
 function deduplicateHistory(historyArray) {
-  const groups = {};
+  const result = [];
   historyArray.forEach(item => {
-    const key = JSON.stringify({
-      authors: item.metadata.authors,
-      title_main: item.metadata.title_main,
-      title_sub: item.metadata.title_sub,
-      journal_name: item.metadata.journal_name,
-      publisher: item.metadata.publisher,
-      year: item.metadata.year
-    });
-    if (!groups[key] || item.timestamp.localeCompare(groups[key].timestamp) < 0) {
-      groups[key] = item;
+    // result에 같은 논문이 있는지 확인
+    const existingIndex = result.findIndex(existing => isSameArticleBase(item, existing));
+    if (existingIndex === -1) {
+      // 같은 논문이 없으면 추가
+      result.push(item);
+    } else {
+      // 같은 논문이 있으면 더 이른 timestamp로 교체
+      if (item.timestamp.localeCompare(result[existingIndex].timestamp) < 0) {
+        result[existingIndex] = item;
+      }
     }
   });
-  return Object.values(groups);
+  
+  return result;
 }
+
 
 // 히스토리 a-2. metadata, academicDB, url, timestamp 모두 포함하여 완전 동일 항목만 중복 제거 (가장 이른 timestamp 유지)
 function deduplicateFullHistory(historyArray) {
@@ -1286,12 +1288,32 @@ function updateHeaderCheckboxState() {
 function deleteSelectedHistoryItems() {
   const checkboxes = document.querySelectorAll('#history-list tbody input[type="checkbox"]:checked');
   const selectedIds = Array.from(checkboxes).map(checkbox => checkbox.dataset.timestampId);
-  
+  const isDedup = document.getElementById('deduplicate')?.checked;
+
   chrome.storage.local.get({ history: [] }, items => {
-    const filtered = items.history.filter(item => !selectedIds.includes(item.timestampId.toString()));
+    let idsToDelete = selectedIds;
+
+    // 중복 제거 토글이 ON일 때: 같은 논문으로 취급되는 모든 항목 삭제
+    if (isDedup) {
+      const selectedItems = items.history.filter(item => selectedIds.includes(item.timestampId.toString()));
+      const allIdsToDelete = new Set(selectedIds);
+
+      // 선택된 각 항목에 대해, 같은 논문인 모든 항목의 ID를 찾아서 추가
+      selectedItems.forEach(selectedItem => {
+        items.history.forEach(item => {
+          if (isSameArticleBase(selectedItem, item)) {
+            allIdsToDelete.add(item.timestampId.toString());
+          }
+        });
+      });
+
+      idsToDelete = Array.from(allIdsToDelete);
+    }
+
+    const filtered = items.history.filter(item => !idsToDelete.includes(item.timestampId.toString()));
     chrome.storage.local.set({ history: filtered }, () => {
       // 삭제된 항목들을 selectedHistoryItems에서도 제거
-      selectedIds.forEach(id => selectedHistoryItems.delete(id));
+      idsToDelete.forEach(id => selectedHistoryItems.delete(id));
       showToast('선택한 항목이 삭제되었습니다');
       renderHistory();
     });
