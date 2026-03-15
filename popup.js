@@ -186,6 +186,35 @@ async function sendMessageToTab(tabId, message) {
   });
 }
 
+async function executeContentScriptOnTab(tabId) {
+  if (extensionBrowser?.scripting?.executeScript) {
+    await extensionBrowser.scripting.executeScript({
+      target: { tabId },
+      files: ['content_script.js']
+    });
+    return;
+  }
+
+  if (extensionChrome?.scripting?.executeScript) {
+    await new Promise((resolve, reject) => {
+      extensionChrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content_script.js']
+      }, () => {
+        const errorMessage = getRuntimeErrorMessage();
+        if (errorMessage) {
+          reject(new Error(errorMessage));
+          return;
+        }
+        resolve();
+      });
+    });
+    return;
+  }
+
+  throw new Error('현재 페이지를 새로고침한 뒤 다시 시도해주세요');
+}
+
 async function writeTextToClipboard(text) {
   if (navigator.clipboard?.writeText) {
     try {
@@ -649,7 +678,12 @@ async function requestPageInfo() {
   try {
     response = await sendMessageToTab(tab.id, { action: 'GET_PAGE_INFO' });
   } catch (err) {
-    throw new Error('현재 페이지는 아직 지원하지 않거나, 페이지를 새로고침한 뒤 다시 시도해야 합니다');
+    try {
+      await executeContentScriptOnTab(tab.id);
+      response = await sendMessageToTab(tab.id, { action: 'GET_PAGE_INFO' });
+    } catch (retryErr) {
+      throw new Error('현재 페이지를 새로고침한 뒤 다시 시도해주세요');
+    }
   }
 
   if (!response?.success) {
@@ -2385,8 +2419,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     fillCitation(currentMetadataGlobal);
     loadProjectTags();
   } catch (err) {
-    console.log(err);
-    showToastError('논문 서지정보가 존재하지 않거나,\n아직 지원하지 않는 페이지입니다');
+    console.error('팝업 초기화 실패:', err);
+    showToastError(err?.message || '논문 서지정보가 존재하지 않거나,\n아직 지원하지 않는 페이지입니다');
   }
   // 4. 탭3의 설정 변경 시 이를 재저장하기
   resaveChangedStyleSettings();

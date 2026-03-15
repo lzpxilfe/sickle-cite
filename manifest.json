@@ -8,7 +8,8 @@
   "description": "국내 인문학(국문학) 분야의 관습적 인용 양식을 지원하는, 한국어 논문에 최적화된 서지사항 메타데이터 추출기 겸 인용 표기 생성기입니다.",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "scripting"
   ],
   "commands": {
     "_execute_action": {
