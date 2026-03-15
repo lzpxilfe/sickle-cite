@@ -2,8 +2,19 @@
 let currentMetadataGlobal = {};
 let currentTimestampIdGlobal = ''; // 현재 탭 1에 띄워져 있는 정보값을 저장된 history 중에서 식별하기 위한 전역변수
 let selectedHistoryItems = new Set(); // 탭2에서 선택된 항목들의 timestampId를 저장
+const DEFAULT_CITATION_ORDER = ['authors', 'title', 'source', 'publisher', 'year', 'pages'];
+const CITATION_SEGMENT_LABELS = {
+  authors: '저자',
+  year: '연도',
+  title: '제목',
+  source: '학술지·권호',
+  publisher: '발행기관',
+  pages: '쪽수'
+};
 const extensionBrowser = globalThis.browser;
 const extensionChrome = globalThis.chrome;
+let citationOrderState = [...DEFAULT_CITATION_ORDER];
+let draggedCitationSegmentKey = null;
 
 function getRuntimeErrorMessage() {
   return extensionChrome?.runtime?.lastError?.message || '';
@@ -220,6 +231,26 @@ function yamlField(name, value) {
 function toMarkdownBlockquote(text) {
   const lines = String(text ?? '').split('\n');
   return lines.map(line => `> ${line}`).join('\n');
+}
+
+function normalizeCitationOrder(order) {
+  const normalized = [];
+  const seen = new Set();
+
+  if (Array.isArray(order)) {
+    order.forEach(key => {
+      if (DEFAULT_CITATION_ORDER.includes(key) && !seen.has(key)) {
+        normalized.push(key);
+        seen.add(key);
+      }
+    });
+  }
+
+  DEFAULT_CITATION_ORDER.forEach(key => {
+    if (!seen.has(key)) normalized.push(key);
+  });
+
+  return normalized;
 }
 
 // ----------------------------------------------------------------
@@ -1026,34 +1057,72 @@ function setupTagInputUI() {
 
 // 인용 처리 -----------------------
 
-// 인용 1: 메타데이터와 인용 양식 설정값을 조합해 최종적인 인용(citation)을 도출
-function getCombinedCitation(meta, style) {
-  // 서브타이틀이 없으면 구분 기호 제거
+function getTitleSegment(meta, style) {
   const checkedSeparator = meta.title_sub ? style.titleSeparator : '';
-  const combinedAuthors = Array.isArray(meta.authors) ? meta.authors.join('·') : meta.authors;
+  const titleText = `${meta.title_main || ''}${checkedSeparator}${meta.title_sub || ''}`.trim();
+  if (!titleText) return '';
+  return `${style.titleBracketLeft}${titleText}${style.titleBracketRight}`;
+}
+
+function getVolumeIssueSegment(meta, style) {
   const hasVol = meta.volume !== '';
   const hasIss = meta.issue !== '';
-  let pageRangePart = '';
-  // page_first와 page_last가 둘 다 비어있지 않고, pageRangeInclude가 true일 때만 페이지 범위 포함
-  if (style.pageRangeInclude && meta.page_first !== '' && meta.page_last !== '') {
-    pageRangePart = `, ${meta.page_first}${style.pageRangeSeparator}${meta.page_last}${style.pageRangeUnit}`;
-  }
-  let combinedCitation = '';
-  // 권수와 호수 둘 다 있을 경우
+
   if (hasVol && hasIss) {
-    combinedCitation = `${combinedAuthors}, ${style.titleBracketLeft}${meta.title_main}${checkedSeparator}${meta.title_sub}${style.titleBracketRight}, ${style.journalBracketLeft}${meta.journal_name}${style.journalBracketRight} ${style.volumePrefix}${meta.volume}${style.volumeSuffix}${style.volumeIssueSeparator}${style.issuePrefix}${meta.issue}${style.issueSuffix}, ${meta.publisher}, ${meta.year}${pageRangePart}.`;
-  // 권수와 호수 둘 중 하나만 있을 경우
-  } else if (hasVol || hasIss) {
-    combinedCitation = `${combinedAuthors}, ${style.titleBracketLeft}${meta.title_main}${checkedSeparator}${meta.title_sub}${style.titleBracketRight}, ${style.journalBracketLeft}${meta.journal_name}${style.journalBracketRight} ${style.eitherPrefix}${meta.volume}${meta.issue}${style.eitherSuffix}, ${meta.publisher}, ${meta.year}${pageRangePart}.`;
-  } else {
-    // 학술지명 값이 비어 있을 경우(학위논문일 경우 등) 학술지명 부분 전체를 제거 ("『』, "이 나타나지 않도록)
-    if (!meta.journal_name) {
-      combinedCitation = `${combinedAuthors}, ${style.titleBracketLeft}${meta.title_main}${checkedSeparator}${meta.title_sub}${style.titleBracketRight}, ${meta.publisher}, ${meta.year}${pageRangePart}.`;
-    } else {
-      combinedCitation = `${combinedAuthors}, ${style.titleBracketLeft}${meta.title_main}${checkedSeparator}${meta.title_sub}${style.titleBracketRight}, ${style.journalBracketLeft}${meta.journal_name}${style.journalBracketRight}, ${meta.publisher}, ${meta.year}${pageRangePart}.`;
-    }
+    return `${style.volumePrefix}${meta.volume}${style.volumeSuffix}${style.volumeIssueSeparator}${style.issuePrefix}${meta.issue}${style.issueSuffix}`.trim();
   }
-  return combinedCitation;
+
+  if (hasVol || hasIss) {
+    return `${style.eitherPrefix}${meta.volume}${meta.issue}${style.eitherSuffix}`.trim();
+  }
+
+  return '';
+}
+
+function getSourceSegment(meta, style) {
+  const journalSegment = meta.journal_name
+    ? `${style.journalBracketLeft}${meta.journal_name}${style.journalBracketRight}`
+    : '';
+  const volumeIssueSegment = getVolumeIssueSegment(meta, style);
+
+  if (journalSegment && volumeIssueSegment) {
+    return `${journalSegment} ${volumeIssueSegment}`;
+  }
+
+  return journalSegment || volumeIssueSegment;
+}
+
+function getPageRangeSegment(meta, style) {
+  if (!style.pageRangeInclude || meta.page_first === '' || meta.page_last === '') {
+    return '';
+  }
+
+  return `${meta.page_first}${style.pageRangeSeparator}${meta.page_last}${style.pageRangeUnit}`;
+}
+
+function getCitationSegments(meta, style) {
+  const combinedAuthors = Array.isArray(meta.authors) ? meta.authors.join('·') : meta.authors;
+
+  return {
+    authors: combinedAuthors || '',
+    year: meta.year || '',
+    title: getTitleSegment(meta, style),
+    source: getSourceSegment(meta, style),
+    publisher: meta.publisher || '',
+    pages: getPageRangeSegment(meta, style)
+  };
+}
+
+// 인용 1: 메타데이터와 인용 양식 설정값을 조합해 최종적인 인용(citation)을 도출
+function getCombinedCitation(meta, style) {
+  const citationSegments = getCitationSegments(meta, style);
+  const orderedSegments = normalizeCitationOrder(style.citationOrder)
+    .map(key => citationSegments[key])
+    .filter(segment => typeof segment === 'string' && segment.trim() !== '');
+
+  if (orderedSegments.length === 0) return '';
+
+  return `${orderedSegments.join(', ')}.`;
 }
 
 // 인용 2: 탭1 우측 textarea에 조합된 citation을 삽입 -> 이벤트 리스너가 있는 다른 함수에서 호출
@@ -1993,6 +2062,146 @@ function reRenderHistorySearch() {
 
 // 설정 처리 -----------------------
 
+function applyCitationOrder(order, options = {}) {
+  citationOrderState = normalizeCitationOrder(order);
+  renderCitationOrderBuilder();
+
+  if (options.persist) {
+    saveStyleSettings();
+    fillCitation(currentMetadataGlobal);
+    renderHistory();
+  }
+}
+
+function moveCitationSegment(key, direction) {
+  const currentIndex = citationOrderState.indexOf(key);
+  const nextIndex = currentIndex + direction;
+
+  if (currentIndex === -1 || nextIndex < 0 || nextIndex >= citationOrderState.length) {
+    return;
+  }
+
+  const nextOrder = [...citationOrderState];
+  [nextOrder[currentIndex], nextOrder[nextIndex]] = [nextOrder[nextIndex], nextOrder[currentIndex]];
+  applyCitationOrder(nextOrder, { persist: true });
+}
+
+function moveCitationSegmentBefore(targetKey) {
+  if (!draggedCitationSegmentKey || draggedCitationSegmentKey === targetKey) {
+    return;
+  }
+
+  const nextOrder = citationOrderState.filter(key => key !== draggedCitationSegmentKey);
+  const targetIndex = nextOrder.indexOf(targetKey);
+  if (targetIndex === -1) return;
+
+  nextOrder.splice(targetIndex, 0, draggedCitationSegmentKey);
+  applyCitationOrder(nextOrder, { persist: true });
+}
+
+function clearCitationDragState() {
+  draggedCitationSegmentKey = null;
+  document.querySelectorAll('.citation-order-chip').forEach(chip => {
+    chip.classList.remove('dragging', 'drag-over');
+  });
+}
+
+function renderCitationOrderBuilder() {
+  const builder = document.getElementById('citation-order-builder');
+  if (!builder) return;
+
+  builder.innerHTML = '';
+  builder.ondragover = event => event.preventDefault();
+  builder.ondrop = event => {
+    event.preventDefault();
+    if (event.target === builder && draggedCitationSegmentKey) {
+      const nextOrder = citationOrderState.filter(key => key !== draggedCitationSegmentKey);
+      nextOrder.push(draggedCitationSegmentKey);
+      applyCitationOrder(nextOrder, { persist: true });
+    }
+    clearCitationDragState();
+  };
+
+  citationOrderState.forEach((key, index) => {
+    const chip = document.createElement('div');
+    chip.className = 'citation-order-chip';
+    chip.dataset.key = key;
+    chip.draggable = true;
+
+    const grip = document.createElement('span');
+    grip.className = 'citation-chip-grip';
+    grip.textContent = '::';
+
+    const label = document.createElement('span');
+    label.className = 'citation-chip-label';
+    label.textContent = CITATION_SEGMENT_LABELS[key];
+
+    const actions = document.createElement('div');
+    actions.className = 'citation-chip-actions';
+
+    const leftButton = document.createElement('button');
+    leftButton.type = 'button';
+    leftButton.className = 'citation-chip-btn';
+    leftButton.textContent = '←';
+    leftButton.title = '왼쪽으로 이동';
+    leftButton.disabled = index === 0;
+    leftButton.addEventListener('click', event => {
+      event.stopPropagation();
+      moveCitationSegment(key, -1);
+    });
+
+    const rightButton = document.createElement('button');
+    rightButton.type = 'button';
+    rightButton.className = 'citation-chip-btn';
+    rightButton.textContent = '→';
+    rightButton.title = '오른쪽으로 이동';
+    rightButton.disabled = index === citationOrderState.length - 1;
+    rightButton.addEventListener('click', event => {
+      event.stopPropagation();
+      moveCitationSegment(key, 1);
+    });
+
+    actions.appendChild(leftButton);
+    actions.appendChild(rightButton);
+    chip.appendChild(grip);
+    chip.appendChild(label);
+    chip.appendChild(actions);
+
+    chip.addEventListener('dragstart', event => {
+      draggedCitationSegmentKey = key;
+      chip.classList.add('dragging');
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', key);
+      }
+    });
+
+    chip.addEventListener('dragover', event => {
+      event.preventDefault();
+      if (draggedCitationSegmentKey && draggedCitationSegmentKey !== key) {
+        chip.classList.add('drag-over');
+      }
+    });
+
+    chip.addEventListener('dragleave', () => {
+      chip.classList.remove('drag-over');
+    });
+
+    chip.addEventListener('drop', event => {
+      event.preventDefault();
+      chip.classList.remove('drag-over');
+      moveCitationSegmentBefore(key);
+      clearCitationDragState();
+    });
+
+    chip.addEventListener('dragend', () => {
+      clearCitationDragState();
+    });
+
+    builder.appendChild(chip);
+  });
+}
+
 // 설정 1: 탭3의 설정값을 객체로 반환
 function getStyleSettings() {
   // 제목·부제목 구분 기호
@@ -2069,6 +2278,7 @@ function getStyleSettings() {
     titleBracketRight,
     journalBracketLeft,
     journalBracketRight,
+    citationOrder: [...citationOrderState],
     pageRangeInclude, // 유일하게 이것만 불리언
     pageRangeSeparator,
     pageRangeUnit
@@ -2114,6 +2324,7 @@ function restoreStyleSettings() {
     titleBracketRight: '」',
     journalBracketLeft: '『',
     journalBracketRight: '』',
+    citationOrder: [...DEFAULT_CITATION_ORDER],
     pageRangeInclude: false,
     pageRangeSeparator: '–',
     pageRangeUnit: '쪽'
@@ -2145,6 +2356,8 @@ function restoreStyleSettings() {
     document.querySelector('input[name="title-brackets"]').checked = items.titleBracketLeft === '〈';
     // 겹낫표 복원
     document.querySelector('input[name="journal-brackets"]').checked = items.journalBracketLeft === '《';
+    // 인용 조각 순서 복원
+    applyCitationOrder(items.citationOrder);
     // 쪽수 범위 표기 복원
     document.querySelector('input[name="page-range-include"]').checked = items.pageRangeInclude;
     document.querySelector('input[name="page-range-separator"]').value = items.pageRangeSeparator;
