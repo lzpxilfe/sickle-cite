@@ -8,26 +8,14 @@
   "description": "국내 인문학(국문학) 분야의 관습적 인용 양식을 지원하는, 한국어 논문에 최적화된 서지사항 메타데이터 추출기 겸 인용 표기 생성기입니다.",
   "permissions": [
     "storage",
-    "activeTab",
-    "scripting",
-    "commands"
+    "activeTab"
   ],
-  "web_accessible_resources": [
-  {
-    "resources": ["xlsx.full.min.js"],
-    "matches": ["<all_urls>"]
-  }
-  ],
-  "background": {
-    "service_worker": "service-worker.js"
-  },
-  "commands":{
-    "open-extension-popup": {
+  "commands": {
+    "_execute_action": {
       "suggested_key": {
         "default": "Ctrl+Shift+K",
         "mac": "Command+Shift+K"
-      },
-      "description": "현재 페이지에서 팝업 창 열기 = 현재 페이지에서 논문 서지사항 추출하기"
+      }
     }
   },
   "action": {
@@ -43,6 +31,25 @@
     "https://*.dbpia.com/journal/articleDetail*",
     "https://*.dbpia.com/journal/detail*",
     "https://*.earticle.net/Article/*",
-    "https://*.scholar.kyobobook.co.kr/article/detail/*"
+    "https://*.scholar.kyobobook.co.kr/article/detail/*",
+    "https://www.kci.go.kr/kciportal/landing/article.kci*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.riss.kr/search/detail/DetailView.do*",
+        "https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView*",
+        "https://*.kiss.kstudy.com/Detail*/Ar*",
+        "https://*.dbpia.com/journal/articleDetail*",
+        "https://*.dbpia.com/journal/detail*",
+        "https://*.earticle.net/Article/*",
+        "https://*.scholar.kyobobook.co.kr/article/detail/*",
+        "https://www.kci.go.kr/kciportal/landing/article.kci*"
+      ],
+      "js": [
+        "content_script.js"
+      ],
+      "run_at": "document_idle"
+    }
   ]
 }

@@ -1,3 +1,5 @@
+const runtimeApi = globalThis.browser?.runtime ?? globalThis.chrome?.runtime;
+
 function getAcademicDBType() {
   const url = window.location.href;
   if (/^https:\/\/[^\/]*riss[^\/]*\/search\/detail\/DetailView\.do\?/.test(url))
@@ -33,10 +35,10 @@ function fixTypography(text) {
   s = s.replace(/"([^\"]+)"/g, '“$1”');
   s = s.replace(/''([^\"]+)''/g, '“$1”');
   s = s.replace(/″([^\"]+)″/g, '“$1”');
-  s = s.replace(/</g, '〈').replace(/>/g, '〉');
-  s = s.replace(/｢/g, '「').replace(/｣/g, '」');
   s = s.replace(/<</g, '《').replace(/>>/g, '》');
   s = s.replace(/≪/g, '《').replace(/≫/g, '》');
+  s = s.replace(/</g, '〈').replace(/>/g, '〉');
+  s = s.replace(/｢/g, '「').replace(/｣/g, '」');
   s = s.replace(/\.{3}/g, '…');
   s = s.replace(/[•ㆍᆞ・･‧⋅]/g, '·');
   s = s.replace(/[᠆‐‑⁃⁻₋﹣]/g, '-');
@@ -537,6 +539,7 @@ function parseDBpia() {
       if (src.includes('master')) thesisType = '석사학위논문';
       else if (src.includes('doctor')) thesisType = '박사학위논문';
     }
+    let publisher = institute;
     if (thesisType) {
       publisher = `${institute} ${thesisType}`;
     }
@@ -849,15 +852,19 @@ function getPageInfo() {
   return { metadata, academicDB, url, timestamp, timestampId };
 }
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'GET_PAGE_INFO') {
-    try {
-      sendResponse({ success: true, pageInfo: getPageInfo() });
-    } catch (err) {
-      sendResponse({ success: false, error: err.message });
+if (runtimeApi && !globalThis.__SICKLE_CITE_MESSAGE_LISTENER__) {
+  globalThis.__SICKLE_CITE_MESSAGE_LISTENER__ = true;
+
+  runtimeApi.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'GET_PAGE_INFO') {
+      try {
+        sendResponse({ success: true, pageInfo: getPageInfo() });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+      return true;
     }
+    // sendResponse를 위해 메시지 채널을 열린 상태로 유지
     return true;
-  }
-  // sendResponse를 위해 메시지 채널을 열린 상태로 유지
-  return true;
-});
+  });
+}
