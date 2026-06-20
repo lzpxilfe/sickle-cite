@@ -167,7 +167,8 @@ textarea:focus,
 .actions button,
 #copy-metadata-btn,
 #save-metadata-btn,
-#copy-citation-btn {
+#copy-citation-btn,
+#download-pdf-filename-btn {
     padding: 4px 12px;
     font-size: 13px;
     color: var(--accent);
@@ -180,9 +181,15 @@ textarea:focus,
 .actions button:hover,
 #copy-metadata-btn:hover,
 #save-metadata-btn:hover,
-#copy-citation-btn:hover {
+#copy-citation-btn:hover,
+#download-pdf-filename-btn:hover:not(:disabled) {
     background: var(--accent);
     color: var(--bg);
+}
+
+#download-pdf-filename-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
 }
 #tab1 h3 {
     font-size: 18px;
@@ -546,6 +553,33 @@ border: 1px solid var(--border);
     color: var(--text-secondary);
     font-size: 12px;
     line-height: 1.5;
+}
+
+.pdf-download-status {
+    min-height: 18px;
+    margin: 8px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+    text-align: center;
+}
+
+.pdf-download-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 420px;
+    max-height: 280px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+}
+
+.pdf-download-options button {
+    width: 100%;
+    margin: 0;
+    justify-content: center;
+    text-align: center;
+    line-height: 1.4;
 }
 
 .citation-order-builder {

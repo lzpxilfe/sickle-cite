@@ -7,28 +7,41 @@
 > 특히 Safari 대응을 위해 수정된 비공식 포크라면, 원저작자 및 기여자를 반드시 명시하고, 공식판과 혼동되지 않도록 배포/소개해주시기를 권합니다.
 > App Store 배포 여부 및 공식 지원 범위는 원작자 측 안내를 우선적으로 확인해주세요.
 
+# Sickle-Cite Safari WebExtension
+
+이 저장소는 Sickle-Cite를 Safari(macOS)에서 직접 빌드해 쓰기 위한 비공식 WebExtension 포크입니다. 원작의 논문 서지정보 추출·인용 표기 생성 기능을 유지하면서, Safari 호환성과 고고학 연구자가 자주 쓰는 국가유산 관련 PDF 파일명 정리 기능을 보강했습니다.
+
 ## 이 포크에서 변경한 내용
 
-이 포크는 원작의 기본 기능을 유지하면서, Safari(macOS)에서도 직접 빌드하여 사용할 수 있도록 WebExtension 구조를 정리하는 데 초점을 맞추었습니다.
+### 주요 기능
 
-주요 변경 사항은 다음과 같습니다.
+1. 지원 학술 DB 상세 페이지에서 논문 서지정보를 추출하고, 국내 인문학 관습에 맞춘 조합된 인용 표기를 만듭니다.
+2. 추출 내역을 히스토리에 저장하고, 중복 정리·프로젝트 태그·복수 항목 인용 복사 기능을 제공합니다.
+3. 선택한 서지정보를 Excel 또는 RIS 파일로 내보낼 수 있습니다.
+4. Safari WebExtension 빌드를 고려해 `browser`/`chrome` API 호환성과 정적 콘텐츠 스크립트 구성을 보강했습니다.
+5. 지원 사이트에서 PDF를 받을 때 파일명을 인용 표기 기반으로 바꿉니다.
+	- 논문: 현재 설정으로 만든 `조합된 인용 표기.pdf`
+	- 국가유산 보고서·간행물: `기관명, 연도, 『보고서명』.pdf`
+	- 한 페이지에 PDF가 여러 개 있으면 `본문편`, `도판편`, 또는 순번을 붙여 충돌을 줄입니다.
 
-1. Safari 호환성을 고려하여 확장 구조를 정리했습니다.
-	- Manifest에서 단축키 동작을 `_execute_action` 기반으로 조정했습니다.
-	- `service-worker.js`에 의존하던 팝업 오픈 흐름을 제거했습니다.
-	- `content_script.js`를 정적 `content_scripts` 방식으로 등록하도록 변경했습니다.
-2. 브라우저 API 호출부를 보다 범용적인 형태로 다듬었습니다.
-	- `chrome.*` 중심 호출을 `browser`/`chrome` 겸용으로 동작하도록 보완했습니다.
-	- Safari에서 실패할 수 있는 일부 클립보드/저장소 접근에 fallback을 추가했습니다.
-3. Safari 대응 과정에서 함께 확인된 몇 가지 안정성 문제를 수정했습니다.
-	- 콘텐츠 스크립트 메시지 리스너의 중복 등록 가능성을 줄였습니다.
-	- DBpia 학위논문 파싱 과정에서 발행기관 값이 비정상적으로 비어 있을 수 있는 문제를 수정했습니다.
-	- 일부 기호 정규화 순서를 조정했습니다.
-4. 설치 문서를 보강했습니다.
-	- Safari용 Xcode 변환/서명/실행 절차를 README에 추가했습니다.
-	- 이 저장소가 비공식 포크일 수 있다는 점과, 공식판과 혼동되지 않도록 주의가 필요하다는 점을 명시했습니다.
+### PDF 파일명 기능의 작동 범위
 
-참고로, 이 포크는 App Store 배포를 전제로 하지 않습니다. Safari 사용자는 Xcode를 이용해 직접 빌드하여 설치하는 방식을 기본 경로로 안내합니다.
+PDF 파일명 자동 변경은 팝업의 `PDF 파일명 자동 변경` 토글로 켜고 끌 수 있으며, 기본값은 켜짐입니다. 이 토글은 파일명 기능만 제어하고, 기존 서지 추출·인용 복사·히스토리·RIS/Excel 내보내기 기능은 그대로 작동합니다.
+
+작동 대상은 학술 사이트와 국가유산 관련 사이트로 제한했습니다.
+
+- 학술: RISS, KCI, KISS, DBpia, eArticle, 교보 스콜라, KoreaScience, ScienceON, KRM, dCollection, 서울역사아카이브
+- 국가유산: 국가유산청/국가유산포털, 국가유산 지식이음, 국립문화유산연구원, 국가유산 민원, 관련 `heritage.go.kr`, `cha.go.kr`, `khs.go.kr`, `e-minwon.go.kr`, `nrich.go.kr` 도메인
+- 그 밖의 사이트에서는 콘텐츠 수집, 자동 파일명 변경, 팝업 다운로드 보조 기능이 동작하지 않습니다.
+
+Safari에서는 브라우저의 다운로드 API 지원 범위가 환경마다 다를 수 있어, 자동 파일명 제안과 팝업의 `PDF 파일명으로 다운로드` 보조 버튼을 함께 제공합니다.
+
+### 설치 안내
+
+이 포크는 App Store 배포를 전제로 하지 않습니다. Safari 사용자는 Xcode로 Safari Web Extension 앱을 변환·서명·실행해서 사용하는 방식을 기본 경로로 안내합니다. 자세한 절차와 원작 README 내용은 아래 접이식 영역에 보존해두었습니다.
+
+<details>
+<summary>원본 README 펼치기</summary>
 
 # 최근 주요 업데이트 내용
 
@@ -411,3 +424,5 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+</details>

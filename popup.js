@@ -11,10 +11,12 @@ const CITATION_SEGMENT_LABELS = {
   publisher: '발행기관',
   pages: '쪽수'
 };
+const pdfFileNaming = globalThis.SickleCiteFileNaming;
 const extensionBrowser = globalThis.browser;
 const extensionChrome = globalThis.chrome;
 let citationOrderState = [...DEFAULT_CITATION_ORDER];
 let draggedCitationSegmentKey = null;
+let currentPdfDownloadOptions = [];
 
 function getRuntimeErrorMessage() {
   return extensionChrome?.runtime?.lastError?.message || '';
@@ -151,6 +153,14 @@ function storageSyncSet(items, callback = () => {}) {
   });
 }
 
+function storageSyncGetAsync(query) {
+  return new Promise(resolve => storageSyncGet(query, resolve));
+}
+
+function storageSyncSetAsync(items) {
+  return new Promise(resolve => storageSyncSet(items, resolve));
+}
+
 async function queryActiveTab() {
   if (extensionBrowser?.tabs?.query) {
     const tabs = await extensionBrowser.tabs.query({ active: true, currentWindow: true });
@@ -190,7 +200,7 @@ async function executeContentScriptOnTab(tabId) {
   if (extensionBrowser?.scripting?.executeScript) {
     await extensionBrowser.scripting.executeScript({
       target: { tabId },
-      files: ['content_script.js']
+      files: ['filename_tools.js', 'content_script.js']
     });
     return;
   }
@@ -199,7 +209,7 @@ async function executeContentScriptOnTab(tabId) {
     await new Promise((resolve, reject) => {
       extensionChrome.scripting.executeScript({
         target: { tabId },
-        files: ['content_script.js']
+        files: ['filename_tools.js', 'content_script.js']
       }, () => {
         const errorMessage = getRuntimeErrorMessage();
         if (errorMessage) {
@@ -243,6 +253,35 @@ async function writeTextToClipboard(text) {
   }
 }
 
+async function downloadWithBrowserApi(url, filename) {
+  const downloadsApi = extensionBrowser?.downloads ?? extensionChrome?.downloads;
+  if (!downloadsApi?.download || !url) {
+    return false;
+  }
+
+  const options = {
+    url,
+    filename,
+    conflictAction: 'uniquify'
+  };
+
+  if (extensionBrowser?.downloads?.download) {
+    await extensionBrowser.downloads.download(options);
+    return true;
+  }
+
+  return new Promise((resolve, reject) => {
+    extensionChrome.downloads.download(options, () => {
+      const errorMessage = getRuntimeErrorMessage();
+      if (errorMessage) {
+        reject(new Error(errorMessage));
+        return;
+      }
+      resolve(true);
+    });
+  });
+}
+
 function yamlScalar(value) {
   return JSON.stringify(String(value ?? ''));
 }
@@ -260,6 +299,12 @@ function yamlField(name, value) {
 function toMarkdownBlockquote(text) {
   const lines = String(text ?? '').split('\n');
   return lines.map(line => `> ${line}`).join('\n');
+}
+
+function metadataHasValue(meta) {
+  return Boolean(meta) && Object.values(meta).some(
+    value => value !== undefined && value !== '' && (!Array.isArray(value) || value.length > 0)
+  );
 }
 
 function normalizeCitationOrder(order) {
@@ -1174,6 +1219,188 @@ function fillCitation(meta) {
   const style = getStyleSettings();
   const combinedCitation = getCombinedCitation(meta, style);
   if (textarea) textarea.value = combinedCitation;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+// PDF 파일명 다운로드 처리 -----------------------
+
+async function getPdfFilenameEnabled() {
+  if (!pdfFileNaming) return false;
+  const items = await storageSyncGetAsync({ [pdfFileNaming.PDF_FILENAME_ENABLED_KEY]: true });
+  return pdfFileNaming.isPdfFilenameEnabled(items);
+}
+
+function setPdfDownloadStatus(message) {
+  const status = document.getElementById('pdf-download-status');
+  if (status) status.textContent = message || '';
+}
+
+function setPdfDownloadButtonState({ visible, disabled, label }) {
+  const button = document.getElementById('download-pdf-filename-btn');
+  if (!button) return;
+  button.style.display = visible ? '' : 'none';
+  button.disabled = Boolean(disabled);
+  if (label) button.textContent = label;
+}
+
+function filenameForDownloadOption(option) {
+  if (!pdfFileNaming || !option?.context) return 'Sickle-Cite PDF.pdf';
+  if (option.kind === 'report' || option.context.kind === 'report') {
+    return pdfFileNaming.renderReportFilename(option.context.report);
+  }
+  const metadata = metadataHasValue(currentMetadataGlobal)
+    ? currentMetadataGlobal
+    : option.context.metadata;
+  return pdfFileNaming.renderAcademicFilename(metadata, getStyleSettings());
+}
+
+async function requestPdfDownloadOptionsFromTab(tab) {
+  if (!tab?.id || !pdfFileNaming?.GET_DOWNLOAD_OPTIONS_ACTION) return [];
+  try {
+    const response = await sendMessageToTab(tab.id, { action: pdfFileNaming.GET_DOWNLOAD_OPTIONS_ACTION });
+    if (response?.success && Array.isArray(response.options)) return response.options;
+  } catch (_error) {
+    try {
+      await executeContentScriptOnTab(tab.id);
+      const response = await sendMessageToTab(tab.id, { action: pdfFileNaming.GET_DOWNLOAD_OPTIONS_ACTION });
+      if (response?.success && Array.isArray(response.options)) return response.options;
+    } catch (_retryError) {
+      return [];
+    }
+  }
+  return [];
+}
+
+async function refreshPdfDownloadControls() {
+  if (!pdfFileNaming) {
+    setPdfDownloadButtonState({ visible: false, disabled: true });
+    return;
+  }
+
+  const enabled = await getPdfFilenameEnabled();
+  const tab = await queryActiveTab().catch(() => null);
+  const allowed = Boolean(tab?.url && pdfFileNaming.isAllowedUrl(tab.url));
+
+  if (!allowed) {
+    currentPdfDownloadOptions = [];
+    setPdfDownloadButtonState({ visible: false, disabled: true });
+    setPdfDownloadStatus('');
+    return;
+  }
+
+  if (!enabled) {
+    currentPdfDownloadOptions = [];
+    setPdfDownloadButtonState({ visible: true, disabled: true, label: 'PDF 파일명으로 다운로드' });
+    setPdfDownloadStatus('PDF 파일명 자동 변경이 꺼져 있습니다.');
+    return;
+  }
+
+  const options = await requestPdfDownloadOptionsFromTab(tab);
+  currentPdfDownloadOptions = options;
+  if (!options.length) {
+    setPdfDownloadButtonState({ visible: true, disabled: true, label: 'PDF 파일명으로 다운로드' });
+    setPdfDownloadStatus('이 페이지에서 다운로드할 PDF 후보를 아직 찾지 못했습니다.');
+    return;
+  }
+
+  setPdfDownloadButtonState({
+    visible: true,
+    disabled: false,
+    label: options.length > 1 ? `PDF ${options.length}개 중 선택` : 'PDF 파일명으로 다운로드'
+  });
+  setPdfDownloadStatus('지원 사이트입니다. PDF 다운로드 파일명을 인용 표기식으로 바꿀 수 있습니다.');
+}
+
+function closePdfDownloadModal() {
+  document.getElementById('pdf-download-modal')?.classList.add('hidden');
+}
+
+function openPdfDownloadModal() {
+  const modal = document.getElementById('pdf-download-modal');
+  const optionsContainer = document.getElementById('pdf-download-options');
+  if (!modal || !optionsContainer) return;
+  optionsContainer.innerHTML = '';
+  currentPdfDownloadOptions.forEach(option => {
+    const button = document.createElement('button');
+    const filename = filenameForDownloadOption(option);
+    button.type = 'button';
+    button.textContent = `${option.label || 'PDF'} → ${filename}`;
+    button.title = filename;
+    button.addEventListener('click', async () => {
+      closePdfDownloadModal();
+      await startPdfDownloadOption(option);
+    });
+    optionsContainer.appendChild(button);
+  });
+  modal.classList.remove('hidden');
+}
+
+async function startPdfDownloadOption(option) {
+  if (!option) return;
+  const filename = filenameForDownloadOption(option);
+  try {
+    if (option.directDownload && option.url && await downloadWithBrowserApi(option.url, filename)) {
+      showToast('PDF를 인용 표기 파일명으로 다운로드합니다');
+      return;
+    }
+
+    const tab = await queryActiveTab();
+    const response = await sendMessageToTab(tab.id, {
+      action: pdfFileNaming.START_NAMED_DOWNLOAD_ACTION,
+      optionId: option.optionId,
+      filename
+    });
+    if (!response?.success) {
+      throw new Error(response?.error || '다운로드를 시작하지 못했습니다');
+    }
+    showToast('PDF 다운로드를 시작했습니다');
+  } catch (error) {
+    console.error('PDF 파일명 다운로드 실패:', error);
+    try {
+      await writeTextToClipboard(filename);
+      showToastError(`자동 다운로드가 실패했습니다.\n파일명은 클립보드에 복사했습니다`);
+    } catch (_clipboardError) {
+      showToastError(error?.message || 'PDF 다운로드를 시작하지 못했습니다');
+    }
+  }
+}
+
+function setupPdfFilenameControls() {
+  const toggle = document.getElementById('pdf-filename-enabled');
+  const downloadButton = document.getElementById('download-pdf-filename-btn');
+  const cancelButton = document.getElementById('pdf-download-cancel');
+
+  if (toggle && pdfFileNaming) {
+    getPdfFilenameEnabled().then(enabled => {
+      toggle.checked = enabled;
+      refreshPdfDownloadControls();
+    });
+    toggle.addEventListener('change', async () => {
+      await storageSyncSetAsync({ [pdfFileNaming.PDF_FILENAME_ENABLED_KEY]: toggle.checked });
+      showToast(toggle.checked ? 'PDF 파일명 자동 변경을 켰습니다' : 'PDF 파일명 자동 변경을 껐습니다');
+      await refreshPdfDownloadControls();
+    });
+  }
+
+  if (downloadButton) {
+    downloadButton.addEventListener('click', async () => {
+      if (!currentPdfDownloadOptions.length) {
+        await refreshPdfDownloadControls();
+      }
+      if (currentPdfDownloadOptions.length === 1) {
+        await startPdfDownloadOption(currentPdfDownloadOptions[0]);
+        return;
+      }
+      if (currentPdfDownloadOptions.length > 1) {
+        openPdfDownloadModal();
+      }
+    });
+  }
+
+  if (cancelButton) {
+    cancelButton.addEventListener('click', closePdfDownloadModal);
+  }
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -2407,6 +2634,7 @@ function restoreStyleSettings() {
 document.addEventListener('DOMContentLoaded', async () => {
   // 1. 저장된 인용 양식 설정값을 불러와 탭3 재구성하기
   restoreStyleSettings();
+  setupPdfFilenameControls();
   // 2. pageInfo를 한 번만 받아 히스토리 저장과 현재 화면 렌더링에 함께 사용
   try {
     const pageInfo = await requestPageInfo();
@@ -2422,6 +2650,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('팝업 초기화 실패:', err);
     showToastError(err?.message || '논문 서지정보가 존재하지 않거나,\n아직 지원하지 않는 페이지입니다');
   }
+  refreshPdfDownloadControls();
   // 4. 탭3의 설정 변경 시 이를 재저장하기
   resaveChangedStyleSettings();
   // 5. 히스토리 탭 렌더링, 이벤트 리슨하여 리렌더링, 다운로드
