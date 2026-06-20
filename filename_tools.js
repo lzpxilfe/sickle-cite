@@ -118,6 +118,71 @@
     return "";
   }
 
+  function splitJsArguments(argsText) {
+    const args = [];
+    let current = "";
+    let quote = "";
+    let escaped = false;
+    const text = String(argsText || "");
+
+    for (let index = 0; index < text.length; index += 1) {
+      const char = text[index];
+      if (escaped) {
+        current += char;
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        current += char;
+        escaped = true;
+        continue;
+      }
+      if (quote) {
+        if (char === quote) {
+          quote = "";
+        } else {
+          current += char;
+        }
+        continue;
+      }
+      if (char === "'" || char === "\"") {
+        quote = char;
+        continue;
+      }
+      if (char === ",") {
+        args.push(current.trim());
+        current = "";
+        continue;
+      }
+      current += char;
+    }
+
+    args.push(current.trim());
+    return args.map(arg => arg.replace(/^['"]|['"]$/g, ""));
+  }
+
+  function jsCallArguments(source, functionName) {
+    const text = String(source || "");
+    const match = text.match(new RegExp(`${functionName}\\s*\\(([^)]*)\\)`, "i"));
+    return match ? splitJsArguments(match[1]) : null;
+  }
+
+  function getKciDownloadInfo(source, baseUrl) {
+    const args = jsCallArguments(source, "fncDown");
+    if (!args || args.length < 2) return null;
+    const articleId = normalizeSpaces(args[0]);
+    const fileId = normalizeSpaces(args[1]);
+    if (!articleId || !fileId) return null;
+
+    const path = `/kciportal/ci/sereArticleSearch/ciSereArtiOrteServHistIFrame.kci?sereArticleSearchBean.artiId=${encodeURIComponent(articleId)}&sereArticleSearchBean.orteFileId=${encodeURIComponent(fileId)}`;
+    let url = path;
+    try {
+      url = new URL(path, baseUrl || "https://www.kci.go.kr").href;
+    } catch (_error) {}
+
+    return { articleId, fileId, url };
+  }
+
   function sanitizeFilenameBase(value, maxBaseLength) {
     const cleaned = stripKnownExtension(value)
       .replace(/[<>:"/\\|?*\x00-\x1F]/g, " ")
@@ -288,6 +353,7 @@
     deriveAttachmentTitle,
     extensionFromFilename,
     filenameFromUrl,
+    getKciDownloadInfo,
     getCombinedCitation,
     hostFromUrl,
     isAcademicUrl,

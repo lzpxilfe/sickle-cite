@@ -88,6 +88,19 @@ test("report attachment helper ignores generic download labels", () => {
   );
 });
 
+test("KCI fncDown source becomes iframe download URL", () => {
+  const info = tools.getKciDownloadInfo(
+    "fncDown('ART003342986','KCI_FI003342986');",
+    "https://www.kci.go.kr/kciportal/po/search/poArtiSearList.kci"
+  );
+
+  assert.deepStrictEqual(info, {
+    articleId: "ART003342986",
+    fileId: "KCI_FI003342986",
+    url: "https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiOrteServHistIFrame.kci?sereArticleSearchBean.artiId=ART003342986&sereArticleSearchBean.orteFileId=KCI_FI003342986"
+  });
+});
+
 test("filename sanitizer removes forbidden characters and trailing dots", () => {
   assert.strictEqual(
     tools.withPdfExtension('A/B:C* "보고서".'),

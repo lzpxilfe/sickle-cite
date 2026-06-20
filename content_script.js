@@ -408,6 +408,73 @@ function parseKCI() {
   return verifyMetadata(rawMetadata);
 }
 
+function kciResultContainer(control) {
+  let node = control;
+  while (node && node !== document.body) {
+    if (node.querySelector?.('input[name="R_INDE_TITL"], input[name="a"]')) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function kciHiddenValue(container, name) {
+  return container?.querySelector?.(`input[name="${name}"]`)?.getAttribute('value') || '';
+}
+
+function stripKciLabel(value, label) {
+  return collapse(fixTypography(String(value || '').replace(new RegExp(`^\\s*${label}\\s*[:：]\\s*`), '')));
+}
+
+function splitKciResultAuthors(value) {
+  const clean = stripKciLabel(value, '저자')
+    .replace(/\s*외\s*\d+\s*명\s*$/g, '')
+    .replace(/\t+/g, ' ');
+  return clean.split(/\s*[|;,]\s*/).map(name => collapse(removeNonKoreanParen(name))).filter(Boolean);
+}
+
+function parseKciResultVolumeIssue(value) {
+  const text = stripKciLabel(value, '권\\(호\\)');
+  const match = text.match(/([^()\s]+)\s*\(([^)]+)\)/);
+  if (match) return { volume: match[1], issue: match[2] };
+  return { volume: text, issue: '' };
+}
+
+function parseKciResultPages(value) {
+  const text = stripKciLabel(value, '페이지').replace(/^pp\.?\s*/i, '');
+  const parts = text.split(/[~-]/).map(part => collapse(part)).filter(Boolean);
+  return {
+    page_first: parts[0] || '',
+    page_last: parts[1] || ''
+  };
+}
+
+function parseKciSearchResultMetadata(control) {
+  const container = kciResultContainer(control);
+  if (!container) return null;
+
+  const titleText = kciHiddenValue(container, 'R_INDE_TITL') || stripKciLabel(kciHiddenValue(container, 'a'), '논문명');
+  const { main: title_main, sub: title_sub } = splitTitle(fixTypography(titleText));
+  const { volume, issue } = parseKciResultVolumeIssue(kciHiddenValue(container, 'e'));
+  const pages = parseKciResultPages(kciHiddenValue(container, 'f'));
+  const pubDate = kciHiddenValue(container, 'R_PUBI_DT') || kciHiddenValue(container, 'g');
+  const rawMetadata = {
+    authors: splitKciResultAuthors(kciHiddenValue(container, 'b')),
+    title_main,
+    title_sub,
+    journal_name: kciHiddenValue(container, 'R_SERE_NM') || stripKciLabel(kciHiddenValue(container, 'd'), '학술지명'),
+    volume: kciHiddenValue(container, 'R_VOL') || volume,
+    issue: kciHiddenValue(container, 'R_ISSE') || issue,
+    publisher: kciHiddenValue(container, 'R_PUBI_INSI_NM') || stripKciLabel(kciHiddenValue(container, 'c'), '학회명'),
+    year: (String(pubDate).match(/(?:19|20)\d{2}/) || [''])[0],
+    page_first: kciHiddenValue(container, 'R_ST_PG') || pages.page_first,
+    page_last: kciHiddenValue(container, 'R_END_PG') || pages.page_last,
+    keywords: [],
+    abstract: ''
+  };
+
+  return verifyMetadata(rawMetadata);
+}
+
 //----- KISS 페이지 처리 함수: KISS 사이트 메타 태그와 DOM에서 메타데이터 추출 -----
 function parseKISS() {
   const meta = name => document.querySelector(`meta[name="${name}"]`)?.getAttribute('content') || '';
@@ -994,7 +1061,7 @@ function isLikelyDownloadControl(control) {
   const combined = `${text} ${source}`;
   return /\.pdf(?:[?#]|$|\s)/i.test(combined) ||
     /(?:PDF|원문|본문|다운로드|내려받기|파일|Full\s*Text|Download|View\s*PDF)/i.test(text) ||
-    /(?:pdf|download|down|file|fulltext|original|원문|다운로드|fnFile|fileDown|downloadFile|fnOriFileDownload|fnFileDownload)/i.test(source);
+    /(?:pdf|download|down|file|fulltext|original|원문|다운로드|fncDown|KCI_FI|ciSereArtiOrteServHistIFrame|fnFile|fileDown|downloadFile|fnOriFileDownload|fnFileDownload)/i.test(source);
 }
 
 function isHeritageDownloadControl(control) {
@@ -1138,6 +1205,17 @@ function nrichPostBodyFromArgs(args) {
 
 function downloadRequestFromControl(control, context) {
   const source = downloadSourceText(control);
+  const kciDownload = fileNamingApi?.getKciDownloadInfo?.(source, location.href);
+  if (kciDownload?.url) {
+    return {
+      url: kciDownload.url,
+      options: {
+        method: 'GET',
+        credentials: 'include'
+      }
+    };
+  }
+
   const args = normalizeNrichDownloadArgs(source, context);
 
   if (fileNamingApi?.isHeritageUrl(location.href) && args && args.length >= 3) {
@@ -1172,6 +1250,8 @@ function downloadUrlFromControl(control) {
     control.getAttribute('data-file') || '';
   const direct = absolutizeUrl(dataUrl || href);
   if (direct) return direct;
+  const kciDownload = fileNamingApi?.getKciDownloadInfo?.(`${href.startsWith('javascript:') ? href : ''} ${control.getAttribute('onclick') || ''}`, location.href);
+  if (kciDownload?.url) return kciDownload.url;
   return firstUrlFromJs(`${href.startsWith('javascript:') ? href : ''} ${control.getAttribute('onclick') || ''} ${nrichViewerDownloadSource(control)}`);
 }
 
@@ -1379,6 +1459,10 @@ function buildAcademicContext(control) {
     metadata = getMetadata();
   } catch (_error) {
     metadata = null;
+  }
+
+  if (!metadata || Object.values(metadata).every(v => v === undefined || v === '' || (Array.isArray(v) && v.length === 0))) {
+    metadata = parseKciSearchResultMetadata(control);
   }
 
   if (!metadata || Object.values(metadata).every(v => v === undefined || v === '' || (Array.isArray(v) && v.length === 0))) {
