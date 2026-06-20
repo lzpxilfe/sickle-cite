@@ -4,6 +4,7 @@ const fileNamingApi = globalThis.SickleCiteFileNaming;
 let pdfFilenameFeatureEnabled = true;
 let lastDownloadContextSentAt = 0;
 const DOWNLOAD_CONTEXT_DEBOUNCE_MS = 300;
+const forcedDownloadControls = new WeakSet();
 
 function getAcademicDBType() {
   const url = window.location.href;
@@ -859,6 +860,12 @@ function storageSyncGetForContent(query, callback) {
   area.get(query, items => callback(items || {}));
 }
 
+function storageSyncGetForContentAsync(query) {
+  return new Promise(resolve => {
+    storageSyncGetForContent(query, resolve);
+  });
+}
+
 function initPdfFilenameSetting() {
   if (!fileNamingApi) return;
   storageSyncGetForContent({ [fileNamingApi.PDF_FILENAME_ENABLED_KEY]: true }, items => {
@@ -937,14 +944,53 @@ function sourceText(control) {
     control.getAttribute('data-href'),
     control.getAttribute('data-file'),
     control.getAttribute('data-filename'),
+    control.getAttribute('data-imgdownurl'),
+    control.getAttribute('data-oridownurl'),
     control.getAttribute('download')
   ].join(' '));
+}
+
+function currentNrichViewerImage() {
+  const rendered = document.querySelector('.viewer-container .viewer-canvas img[id], .viewer-canvas img[id], .viewer-image[id]');
+  const renderedId = rendered?.getAttribute?.('id') || '';
+  if (renderedId) {
+    const byDataIdx = Array.from(document.querySelectorAll('img[data-idx]'))
+      .find(img => img.getAttribute('data-idx') === renderedId);
+    if (byDataIdx) return byDataIdx;
+  }
+
+  const renderedSrc = rendered?.getAttribute?.('src') || '';
+  if (renderedSrc) {
+    return Array.from(document.querySelectorAll('img[data-imgdownurl], img[data-oridownurl]'))
+      .find(img => {
+        const src = img.getAttribute('src') || img.getAttribute('data-original') || img.getAttribute('data-src') || '';
+        return src && (src === renderedSrc || absolutizeUrl(src) === absolutizeUrl(renderedSrc));
+      }) || null;
+  }
+
+  return null;
+}
+
+function nrichViewerDownloadSource(control) {
+  const className = control?.getAttribute?.('class') || '';
+  if (!/\bviewer-download\b/i.test(className)) return '';
+  const image = currentNrichViewerImage();
+  if (!image?.getAttribute) return '';
+
+  if (/\bviewer-download-ori\b/i.test(className)) {
+    return image.getAttribute('data-oridownurl') || image.dataset?.oridownurl || '';
+  }
+  return image.getAttribute('data-imgdownurl') || image.dataset?.imgdownurl || '';
+}
+
+function downloadSourceText(control) {
+  return pdfNormalize(`${sourceText(control)} ${nrichViewerDownloadSource(control)}`);
 }
 
 function isLikelyDownloadControl(control) {
   if (!control) return false;
   const text = controlText(control);
-  const source = sourceText(control);
+  const source = downloadSourceText(control);
   const combined = `${text} ${source}`;
   return /\.pdf(?:[?#]|$|\s)/i.test(combined) ||
     /(?:PDF|원문|본문|다운로드|내려받기|파일|Full\s*Text|Download|View\s*PDF)/i.test(text) ||
@@ -953,7 +999,7 @@ function isLikelyDownloadControl(control) {
 
 function isHeritageDownloadControl(control) {
   const text = controlText(control);
-  const source = sourceText(control);
+  const source = downloadSourceText(control);
   const combined = `${text} ${source}`;
   if (/바로보기|fnPdfViewer|fnSatisfaction2/i.test(combined)) return false;
   return /다운로드|내려받기|fnOriFileDownload|fnFileDownload|includeFileDownLoad|download/i.test(combined);
@@ -967,6 +1013,157 @@ function firstUrlFromJs(source) {
   return quoted ? absolutizeUrl(quoted[1]) : '';
 }
 
+function splitJsArguments(argsText) {
+  const args = [];
+  let current = '';
+  let quote = '';
+  let escaped = false;
+  const text = String(argsText || '');
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      current += char;
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = '';
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === '\'' || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === ',') {
+      args.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+
+  args.push(current.trim());
+  return args.map(arg => arg.replace(/^['"]|['"]$/g, ''));
+}
+
+function jsCallArguments(source, functionName) {
+  const text = String(source || '');
+  const match = text.match(new RegExp(`${functionName}\\s*\\(([^)]*)\\)`, 'i'));
+  return match ? splitJsArguments(match[1]) : null;
+}
+
+function nrichMenuName() {
+  const path = location.pathname || '';
+  const href = location.href || '';
+  if (/\/kor\/mokgan/i.test(path)) return 'mokgan';
+  if (/\/kor\/remains/i.test(path)) return 'remains';
+  if (/\/kor\/originalUsr/i.test(path) || /[?&]menuIdx=1046\b/i.test(href)) return 'origin';
+  return '';
+}
+
+function nrichTableName() {
+  const menuName = nrichMenuName();
+  if (menuName === 'mokgan') return 'mokgan_file';
+  if (menuName === 'remains') return 'jungwon_file';
+  return 'report_attachfile';
+}
+
+function normalizeNrichDownloadArgs(source, context) {
+  const satisfactionArgs = jsCallArguments(source, 'fnSatisfaction');
+  if (satisfactionArgs) return satisfactionArgs;
+
+  const fileDownloadArgs = jsCallArguments(source, 'fnFileDownload');
+  if (fileDownloadArgs) {
+    return [
+      fileDownloadArgs[5] || context?.downloadUrl || '',
+      fileDownloadArgs[0] || '',
+      fileDownloadArgs[1] || '',
+      fileDownloadArgs[2] || '',
+      fileDownloadArgs[3] || '',
+      fileDownloadArgs[4] || ''
+    ];
+  }
+
+  const oriDownloadArgs = jsCallArguments(source, 'fnOriFileDownload');
+  if (oriDownloadArgs) {
+    return [
+      oriDownloadArgs[0] || context?.downloadUrl || '',
+      oriDownloadArgs[1] || '',
+      oriDownloadArgs[2] || '',
+      oriDownloadArgs[4] || '',
+      oriDownloadArgs[5] || '',
+      oriDownloadArgs[6] || ''
+    ];
+  }
+
+  return null;
+}
+
+function nrichPostBodyFromArgs(args) {
+  const fileIdx = args[1] || args[0] || '';
+  const menuIdx = args[2] || args[1] || '';
+  const fileType = args[3] || '';
+  const gubun = args[4] || '';
+  const filetype = args[5] || '';
+  const body = new URLSearchParams();
+  [
+    ['file_idx', fileIdx],
+    ['menuidx', menuIdx],
+    ['menuIdx', menuIdx],
+    ['file_type', fileType],
+    ['gubun', gubun],
+    ['filetype', filetype],
+    ['mcidx', fileIdx],
+    ['idx', fileIdx],
+    ['file_gubun', gubun],
+    ['a_number', fileIdx],
+    ['add_seq', fileIdx],
+    ['make_no', gubun],
+    ['filetype_cd', fileType],
+    ['table_nm', nrichTableName()],
+    ['title', document.title || '']
+  ].forEach(([key, value]) => body.set(key, value || ''));
+  return body;
+}
+
+function downloadRequestFromControl(control, context) {
+  const source = downloadSourceText(control);
+  const args = normalizeNrichDownloadArgs(source, context);
+
+  if (fileNamingApi?.isHeritageUrl(location.href) && args && args.length >= 3) {
+    return {
+      url: absolutizeUrl(args[0] || context?.downloadUrl || ''),
+      options: {
+        method: 'POST',
+        credentials: 'include',
+        body: nrichPostBodyFromArgs(args)
+      }
+    };
+  }
+
+  if ((context?.directDownload || context?.report?.directDownload) && context?.downloadUrl) {
+    return {
+      url: context.downloadUrl,
+      options: {
+        method: 'GET',
+        credentials: 'include'
+      }
+    };
+  }
+
+  return null;
+}
+
 function downloadUrlFromControl(control) {
   if (!control?.getAttribute) return '';
   const href = control.getAttribute('href') || '';
@@ -975,7 +1172,7 @@ function downloadUrlFromControl(control) {
     control.getAttribute('data-file') || '';
   const direct = absolutizeUrl(dataUrl || href);
   if (direct) return direct;
-  return firstUrlFromJs(`${href.startsWith('javascript:') ? href : ''} ${control.getAttribute('onclick') || ''}`);
+  return firstUrlFromJs(`${href.startsWith('javascript:') ? href : ''} ${control.getAttribute('onclick') || ''} ${nrichViewerDownloadSource(control)}`);
 }
 
 function isDirectDownloadControl(control, downloadUrl) {
@@ -1150,7 +1347,7 @@ function reportFileTitleFromControl(control, downloadUrl) {
 
 function downloadControlKey(control) {
   const url = downloadUrlFromControl(control);
-  const source = sourceText(control);
+  const source = downloadSourceText(control);
   const text = controlText(control)
     .replace(/\b\d+(?:\.\d+)?\s*(?:KB|MB|GB)\b/gi, '')
     .replace(/\b(?:PDF|Download|Full\s*Text)\b/gi, '')
@@ -1161,7 +1358,7 @@ function downloadControlKey(control) {
 
 function downloadControls() {
   const seen = new Set();
-  return Array.from(document.querySelectorAll('a, button, input, [role="button"], [onclick], [data-url], [data-href], [data-file]'))
+  return Array.from(document.querySelectorAll('a, button, input, [role="button"], [onclick], [data-url], [data-href], [data-file], [data-imgdownurl], [data-oridownurl]'))
     .filter(control => {
       if (!isLikelyDownloadControl(control)) return false;
       if (fileNamingApi?.isHeritageUrl(location.href)) return isHeritageDownloadControl(control);
@@ -1238,6 +1435,11 @@ function buildDownloadContext(control, allControls = downloadControls()) {
   return buildAcademicContext(control);
 }
 
+async function filenameForContext(context) {
+  const settings = await storageSyncGetForContentAsync(null);
+  return fileNamingApi.renderFilename(context, settings);
+}
+
 function sendDownloadContext(context) {
   if (!context || !runtimeApi?.sendMessage) return;
   try {
@@ -1257,15 +1459,37 @@ function sendDownloadContext(context) {
   } catch (_error) {}
 }
 
-function handlePossibleDownload(event) {
+async function handlePossibleDownload(event) {
   if (!pdfFilenameFeatureEnabled || !isPdfFilenameSupportedPage()) return;
-  const control = safeClosest(event.target, 'a, button, input, [role="button"], [tabindex], [onclick], [data-url], [data-href], [data-file], [class*="down"], [class*="file"], [class*="full"]');
+  const control = safeClosest(event.target, 'a, button, input, [role="button"], [tabindex], [onclick], [data-url], [data-href], [data-file], [data-imgdownurl], [data-oridownurl], [class*="down"], [class*="file"], [class*="full"]');
   if (!isLikelyDownloadControl(control)) return;
+  if (forcedDownloadControls.has(control)) {
+    forcedDownloadControls.delete(control);
+    return;
+  }
 
   const now = Date.now();
-  if (now - lastDownloadContextSentAt < DOWNLOAD_CONTEXT_DEBOUNCE_MS) return;
-  lastDownloadContextSentAt = now;
-  sendDownloadContext(buildDownloadContext(control));
+  const controls = downloadControls();
+  const context = buildDownloadContext(control, controls);
+  if (now - lastDownloadContextSentAt >= DOWNLOAD_CONTEXT_DEBOUNCE_MS) {
+    lastDownloadContextSentAt = now;
+    sendDownloadContext(context);
+  }
+
+  if (event.type === 'pointerdown' || event.type === 'change') return;
+
+  const request = downloadRequestFromControl(control, context);
+  if (!request) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+
+  const filename = await filenameForContext(context);
+  if (await downloadRequestWithFilename(request, filename)) return;
+
+  forcedDownloadControls.add(control);
+  control.click();
 }
 
 function optionLabelFromContext(context, index) {
@@ -1295,12 +1519,15 @@ function getDownloadOptions() {
     .filter(Boolean);
 }
 
-async function downloadDirectUrlWithFilename(url, filename) {
-  if (!url || /^javascript:/i.test(url)) return false;
+async function downloadRequestWithFilename(request, filename) {
+  if (!request?.url || /^javascript:/i.test(request.url)) return false;
   try {
-    const response = await fetch(url, { credentials: 'include' });
+    const response = await fetch(request.url, request.options || { credentials: 'include' });
     if (!response.ok) return false;
+    const contentType = response.headers.get('content-type') || '';
+    if (/text\/html|application\/json/i.test(contentType)) return false;
     const blob = await response.blob();
+    if (!blob.size) return false;
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = blobUrl;
@@ -1315,6 +1542,16 @@ async function downloadDirectUrlWithFilename(url, filename) {
   }
 }
 
+async function downloadDirectUrlWithFilename(url, filename) {
+  return downloadRequestWithFilename({
+    url,
+    options: {
+      method: 'GET',
+      credentials: 'include'
+    }
+  }, filename);
+}
+
 async function startNamedDownload(optionId, filename) {
   const controls = downloadControls();
   const index = Number(optionId);
@@ -1323,6 +1560,11 @@ async function startNamedDownload(optionId, filename) {
 
   const context = buildDownloadContext(control, controls);
   sendDownloadContext(context);
+  const request = downloadRequestFromControl(control, context);
+
+  if (request && await downloadRequestWithFilename(request, filename)) {
+    return { success: true, method: 'fetch' };
+  }
 
   if ((context?.directDownload || context?.report?.directDownload) &&
       context?.downloadUrl &&

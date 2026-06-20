@@ -77,6 +77,17 @@ test("multi-file report filename adds attachment suffix", () => {
   );
 });
 
+test("report attachment helper ignores generic download labels", () => {
+  assert.strictEqual(
+    tools.deriveAttachmentTitle("나주 대안리 구영유적 발굴조사 보고서", "원본 다운로드", ""),
+    ""
+  );
+  assert.strictEqual(
+    tools.deriveAttachmentTitle("나주 대안리 구영유적 발굴조사 보고서", "이미지 내려받기", ""),
+    ""
+  );
+});
+
 test("filename sanitizer removes forbidden characters and trailing dots", () => {
   assert.strictEqual(
     tools.withPdfExtension('A/B:C* "보고서".'),

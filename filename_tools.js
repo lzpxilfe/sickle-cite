@@ -239,7 +239,7 @@
     const fileStem = stripKnownExtension(normalizeSpaces(fileTitle || originalFilename || ""));
     const report = normalizeSpaces(reportTitle);
     if (!fileStem) return "";
-    if (/^(원본|본문|다운로드|download|file|report|includeFileDownLoad)$/i.test(fileStem)) return "";
+    if (/^(원본|이미지|본문|파일|다운로드|내려받기|download|file|report|includeFileDownLoad)(?:\s*(?:다운로드|내려받기))?$/i.test(fileStem)) return "";
     if (normalizeComparable(fileStem) === normalizeComparable(report)) return "";
 
     const meaningfulSuffix = fileStem.match(/((?:제\s*)?\d+\s*권\s*\([^)]*\)|(?:제\s*)?\d+\s*권|도면\s*\d+|도판\s*\d+|부록\s*\d*|별책|상권|하권|본문편?|도판편?|원색도판|사진도판)(?:.*)?$/);
