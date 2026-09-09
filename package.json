@@ -1,0 +1,11 @@
+{
+  "name": "sickle-cite-safari",
+  "version": "1.8.0",
+  "private": true,
+  "scripts": {
+    "test": "node tests/run-tests.js && node --test tests/context-tests.js tests/download-tests.js tests/integration-tests.js tests/metadata-tests.js"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0"
+  }
+}

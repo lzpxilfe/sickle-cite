@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sickle-Cite",
-  "version": "1.7.7",
+  "version": "1.8.0",
   "icons": {
     "128": "icons/icon128.png"
   },
@@ -46,7 +46,9 @@
     "https://*.cha.go.kr/*",
     "https://*.khs.go.kr/*",
     "https://*.e-minwon.go.kr/*",
-    "https://*.nrich.go.kr/*"
+    "https://*.nrich.go.kr/*",
+    "https://*/*",
+    "http://*/*"
   ],
   "content_scripts": [
     {
@@ -67,10 +69,14 @@
         "https://*.cha.go.kr/*",
         "https://*.khs.go.kr/*",
         "https://*.e-minwon.go.kr/*",
-        "https://*.nrich.go.kr/*"
+        "https://*.nrich.go.kr/*",
+        "https://*/*",
+        "http://*/*"
       ],
       "js": [
         "filename_tools.js",
+        "download_tools.js",
+        "metadata_tools.js",
         "content_script.js"
       ],
       "run_at": "document_idle"

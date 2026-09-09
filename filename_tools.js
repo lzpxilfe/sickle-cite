@@ -54,10 +54,50 @@
     }
   }
 
-  function isAcademicUrl(url) {
+  const ACADEMIC_HOSTS = {
+    'riss.kr': 'RISS', 'riss.or.kr': 'RISS', 'kci.go.kr': 'KCI', 'kiss.kstudy.com': 'KISS',
+    'dbpia.com': 'DBpia', 'dbpia.co.kr': 'DBpia', 'earticle.net': 'eArticle',
+    'scholar.kyobobook.co.kr': '스콜라', 'koreascience.or.kr': 'KoreaScience',
+    'scienceon.kisti.re.kr': 'ScienceON', 'krm.or.kr': 'KRM',
+    'dcollection.net': 'dCollection', 'history.seoul.go.kr': '서울역사',
+    'koreascience.kr': 'KoreaScience', 'koreascholar.com': '코리아스칼라',
+    'accesson.kr': 'AccessON', 'koreamed.org': 'KoreaMed',
+    'nanet.go.kr': '국회도서관', 'nl.go.kr': '국립중앙도서관',
+    'scholar.google.com': 'Google Scholar', 'scholar.google.co.kr': 'Google Scholar',
+    'auric.or.kr': 'AURIC', 'kmbase.medric.or.kr': 'KMbase',
+    'scholarworks.bwise.kr': 'ScholarWorks', 'ndsl.kr': 'ScienceON'
+  };
+
+  function academicHost(url) {
     const host = hostFromUrl(url);
-    return Boolean(host && ACADEMIC_DOMAINS_PATTERN.test(host));
+    for (const domain of Object.keys(ACADEMIC_HOSTS)) {
+      if (host === domain || host.endsWith('.' + domain)) return domain;
+      // EZproxy hosts encode the original domain using dots or hyphens.
+      // Restrict automatic proxy recognition to academic institution domains.
+      if (!/\.(?:ac\.kr|edu|edu\.[a-z]{2})$/.test(host)) continue;
+      const prefix = host.replace(/\.(?:ac\.kr|edu|edu\.[a-z]{2})$/, '');
+      const encoded = domain.replace(/\./g, '-');
+      if (prefix.startsWith(domain + '.') || prefix.startsWith(encoded + '.') ||
+          prefix.startsWith(encoded + '-ssl.') || prefix.includes('.' + domain + '.') ||
+          prefix.includes('.' + encoded + '.') || prefix.includes('.' + encoded + '-ssl.') ||
+          prefix.includes('-' + encoded + '.') || prefix.includes('-' + encoded + '-ssl.')) return domain;
+    }
+    if (/^(?:dcollection|repository|s-space|scholarworks|dspace)\.[a-z0-9.-]+\.ac\.kr$/.test(host)) return 'dcollection.net';
+    return '';
   }
+
+  function academicSource(url) { return ACADEMIC_HOSTS[academicHost(url)] || ''; }
+
+  function canonicalAcademicUrl(url) {
+    try {
+      const parsed = new URL(url);
+      const host = academicHost(url);
+      if (host) parsed.hostname = 'www.' + host;
+      return parsed.href;
+    } catch (_) { return String(url || ''); }
+  }
+
+  function isAcademicUrl(url) { return Boolean(academicHost(url)); }
 
   function isHeritageUrl(url) {
     const host = hostFromUrl(url);
@@ -169,9 +209,11 @@
 
   function getKciDownloadInfo(source, baseUrl) {
     const args = jsCallArguments(source, "fncDown");
-    if (!args || args.length < 2) return null;
-    const articleId = normalizeSpaces(args[0]);
-    const fileId = normalizeSpaces(args[1]);
+    if (!args || !args.length) return null;
+    let pageArticle = '';
+    try { pageArticle = new URL(baseUrl).searchParams.get('sereArticleSearchBean.artiId') || ''; } catch (_) {}
+    const articleId = normalizeSpaces(args.length > 1 ? args[0] : pageArticle);
+    const fileId = normalizeSpaces(args.length > 1 ? args[1] : args[0]);
     if (!articleId || !fileId) return null;
 
     const path = `/kciportal/ci/sereArticleSearch/ciSereArtiOrteServHistIFrame.kci?sereArticleSearchBean.artiId=${encodeURIComponent(articleId)}&sereArticleSearchBean.orteFileId=${encodeURIComponent(fileId)}`;
@@ -193,7 +235,16 @@
       .trim();
 
     const limit = Number(maxBaseLength) || MAX_FILENAME_LENGTH;
-    return cleaned.slice(0, limit).replace(/[. ]+$/g, "").trim();
+    // Leave room for the extension and browser-added duplicate suffixes.
+    let result = "";
+    let bytes = 0;
+    for (const char of cleaned.normalize("NFC")) {
+      const size = new TextEncoder().encode(char).length;
+      if (result.length + char.length > limit || bytes + size > 231) break;
+      result += char;
+      bytes += size;
+    }
+    return result.replace(/[. ]+$/g, "").trim();
   }
 
   function withPdfExtension(base) {
@@ -344,6 +395,9 @@
 
   const api = {
     ACADEMIC_DOMAINS_PATTERN,
+    academicHost,
+    academicSource,
+    canonicalAcademicUrl,
     DEFAULT_STYLE_SETTINGS,
     DOWNLOAD_CONTEXT_MESSAGE,
     GET_DOWNLOAD_OPTIONS_ACTION,

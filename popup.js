@@ -200,7 +200,7 @@ async function executeContentScriptOnTab(tabId) {
   if (extensionBrowser?.scripting?.executeScript) {
     await extensionBrowser.scripting.executeScript({
       target: { tabId },
-      files: ['filename_tools.js', 'content_script.js']
+      files: ['filename_tools.js', 'download_tools.js', 'metadata_tools.js', 'content_script.js']
     });
     return;
   }
@@ -209,7 +209,7 @@ async function executeContentScriptOnTab(tabId) {
     await new Promise((resolve, reject) => {
       extensionChrome.scripting.executeScript({
         target: { tabId },
-        files: ['filename_tools.js', 'content_script.js']
+        files: ['filename_tools.js', 'download_tools.js', 'metadata_tools.js', 'content_script.js']
       }, () => {
         const errorMessage = getRuntimeErrorMessage();
         if (errorMessage) {
@@ -727,7 +727,16 @@ async function requestPageInfo() {
       await executeContentScriptOnTab(tab.id);
       response = await sendMessageToTab(tab.id, { action: 'GET_PAGE_INFO' });
     } catch (retryErr) {
-      throw new Error('현재 페이지를 새로고침한 뒤 다시 시도해주세요');
+      const restored = await backgroundRequest({ type: 'SICKLE_CITE_PDF_TAB_OPTIONS', tabId: tab.id }).catch(() => null);
+      const context = restored?.options?.[0]?.context;
+      if (!context?.metadata?.title_main) throw new Error('논문 상세페이지에서 원문을 연 뒤 다시 시도해주세요.');
+      const now = new Date();
+      response = { success: true, pageInfo: {
+        metadata: context.metadata,
+        academicDB: pdfFileNaming.academicSource(context.sourcePageUrl || context.pageUrl) || '학술 PDF',
+        url: context.sourcePageUrl || context.pageUrl,
+        timestamp: now.toLocaleString('ko-KR'), timestampId: now.getTime()
+      } };
     }
   }
 
@@ -1272,6 +1281,14 @@ async function requestPdfDownloadOptionsFromTab(tab) {
   return [];
 }
 
+async function backgroundRequest(message) {
+  if (extensionBrowser?.runtime?.sendMessage) return extensionBrowser.runtime.sendMessage(message);
+  return new Promise((resolve, reject) => extensionChrome.runtime.sendMessage(message, response => {
+    const error = getRuntimeErrorMessage();
+    if (error) reject(new Error(error)); else resolve(response);
+  }));
+}
+
 async function refreshPdfDownloadControls() {
   if (!pdfFileNaming) {
     setPdfDownloadButtonState({ visible: false, disabled: true });
@@ -1280,7 +1297,7 @@ async function refreshPdfDownloadControls() {
 
   const enabled = await getPdfFilenameEnabled();
   const tab = await queryActiveTab().catch(() => null);
-  const allowed = Boolean(tab?.url && pdfFileNaming.isAllowedUrl(tab.url));
+  const allowed = Boolean(tab?.url && /^https?:/.test(tab.url));
 
   if (!allowed) {
     currentPdfDownloadOptions = [];
@@ -1296,8 +1313,17 @@ async function refreshPdfDownloadControls() {
     return;
   }
 
-  const options = await requestPdfDownloadOptionsFromTab(tab);
+  let options = await requestPdfDownloadOptionsFromTab(tab);
+  if (!options.length) {
+    const response = await backgroundRequest({ type: 'SICKLE_CITE_PDF_TAB_OPTIONS', tabId: tab.id }).catch(() => null);
+    options = response?.options || [];
+  }
   currentPdfDownloadOptions = options;
+  if (!options.length && !pdfFileNaming.isAllowedUrl(tab.url)) {
+    setPdfDownloadButtonState({ visible: false, disabled: true });
+    setPdfDownloadStatus('');
+    return;
+  }
   if (!options.length) {
     setPdfDownloadButtonState({ visible: true, disabled: true, label: 'PDF 파일명으로 다운로드' });
     setPdfDownloadStatus('이 페이지에서 다운로드할 PDF 후보를 아직 찾지 못했습니다.');
@@ -1340,11 +1366,11 @@ async function startPdfDownloadOption(option) {
   if (!option) return;
   const filename = filenameForDownloadOption(option);
   try {
-    if (option.directDownload && option.url && await downloadWithBrowserApi(option.url, filename)) {
-      showToast('PDF를 인용 표기 파일명으로 다운로드합니다');
+    if (option.nativePdf) {
+      const result = await backgroundRequest({ type: 'SICKLE_CITE_OPEN_DOWNLOAD', request: { url: option.url }, filename, tabId: option.tabId });
+      if (!result?.success) throw new Error(result?.error || '저장 화면을 열지 못했습니다.');
       return;
     }
-
     const tab = await queryActiveTab();
     const response = await sendMessageToTab(tab.id, {
       action: pdfFileNaming.START_NAMED_DOWNLOAD_ACTION,
@@ -1354,7 +1380,9 @@ async function startPdfDownloadOption(option) {
     if (!response?.success) {
       throw new Error(response?.error || '다운로드를 시작하지 못했습니다');
     }
-    showToast('PDF 다운로드를 시작했습니다');
+    showToast(response.method === 'helper' ? 'PDF 저장 화면을 열었습니다.' : response.method === 'click'
+      ? '사이트의 원문 버튼을 실행했습니다. 파일명 변경 여부를 확인해 주세요.'
+      : 'PDF 저장을 요청했습니다. 다운로드 목록을 확인해 주세요.');
   } catch (error) {
     console.error('PDF 파일명 다운로드 실패:', error);
     try {
