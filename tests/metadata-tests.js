@@ -34,6 +34,11 @@ test('dCollection visible details provide title, authors, publisher and issue',(
  const m=meta.extract(doc('<div class="bookBriefInfo"><h3 class="bookTit">조선시대 건축</h3><div class="writer"><a>김철수</a></div><li class="volume"><a>문화재</a>, 2022, Vol.55 No.1, 281-304</li></div><span class="eleName">발행기관</span><span>문화재연구소</span><span class="eleName">발행년도</span><span>2022</span>'));
  assert.equal(m.title_main,'조선시대 건축');assert.equal(m.publisher,'문화재연구소');assert.equal(m.volume,'55');assert.equal(m.issue,'1');assert.equal(m.page_last,'304');
 });
+test('Seoul History visible article details supply complete citation metadata',()=>{
+ const dom=new JSDOM('<meta name="author" content="서울역사편찬원"><div class="title-box"><h3>‘지금 여기’에서 질문하는 서울역사</h3></div><div class="info-box"><div class="summary"><li><b>저자</b><span>배우성</span></li><li><b>발행</b><span>2022-10</span></li><li><b>게재지</b><span>서울과 역사 112</span></li></div></div>',{url:'https://history.seoul.go.kr/archive/bbsctt/view.do?bbscttSn=2302220013'});
+ const m=meta.extract(dom.window.document);
+ assert.equal(m.title_main,'‘지금 여기’에서 질문하는 서울역사');assert.deepEqual(m.authors,['배우성']);assert.equal(m.journal_name,'서울과 역사');assert.equal(m.volume,'112');assert.equal(m.publisher,'서울역사편찬원');assert.equal(m.year,'2022');
+});
 test('proxy host recognition is bounded and leaves encoded paths intact',()=>{
  for(const url of ['https://www-dbpia-co-kr.eproxy.yonsei.ac.kr/journal/articleDetail?nodeId=A', 'https://scholar-kyobobook-co-kr-ssl.openlib.uos.ac.kr/article/detail/1','https://www.riss.kr.proxy.univ.ac.kr/search/detail/DetailView.do?id=1','https://dcollection.uos.ac.kr/item'])assert.ok(naming.isAcademicUrl(url),url);
  for(const url of ['https://notdbpia.com/','https://evil.test/riss.kr','https://dbpia-co-kr.evil.test','https://riss.kr.evil.test'])assert.ok(!naming.isAcademicUrl(url),url);

@@ -163,6 +163,27 @@
     }
     // Site-specific bilingual display fields supplement English-only export tags.
     const host = doc.location?.hostname || '';
+    if (/^history\.seoul\.go\.kr$/i.test(host)) {
+      const title = clean(doc.querySelector('.title-box h3, .contents-detail h3, h1')?.textContent);
+      const fields = {};
+      for (const item of doc.querySelectorAll('.info-box .summary li, .summary li')) {
+        const label = clean(item.querySelector('b, strong')?.textContent).replace(/[\s:：]/g, '');
+        const value = clean(item.querySelector('span')?.textContent);
+        if (label && value) fields[label] = value;
+      }
+      const publication = fields['게재지'] || '';
+      const match = publication.match(/^(.+?)\s+(\d+)(?:\s*\((\d+)\))?\s*$/);
+      const archive = record({
+        title,
+        authors: fields['저자'],
+        journal: match?.[1] || publication,
+        publisher: values('author')?.[0] || '서울역사편찬원',
+        year: fields['발행'],
+        volume: match?.[2],
+        issue: match?.[3]
+      });
+      if (archive.title_main) result = merge(archive, result);
+    }
     if (/koreascience/.test(host)) {
       const koreanTitle = [...doc.querySelectorAll('.article-title-row h1')].map(n => clean(n.textContent)).find(t => /[가-힣]/.test(t));
       if (koreanTitle) result.title_main = koreanTitle;
