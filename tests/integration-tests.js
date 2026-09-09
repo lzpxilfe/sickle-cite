@@ -22,6 +22,21 @@ test('KCI one-argument control produces request for current article',async()=>{
  const p=page(tags+`<a href="javascript:;" onclick="fncDown('KCI_FI123')">KCI 원문 내려받기</a>`,'https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART123');
  try{const result=await p.send({action:'GET_DOWNLOAD_OPTIONS'});assert.match(result.options[0].url,/artiId=ART123/);assert.match(result.options[0].url,/orteFileId=KCI_FI123/);}finally{p.w.close();}
 });
+test('Seoul History archive downloads use its displayed article metadata',async()=>{
+ const p=page(`<meta name="author" content="서울역사편찬원"><div class="title-box"><h3>‘지금 여기’에서 질문하는 서울역사</h3></div><div class="info-box"><div class="summary"><ul><li><b>저자</b><span>배우성</span></li><li><b>발행</b><span>2022-10</span></li><li><b>게재지</b><span>서울과 역사 112</span></li></ul></div></div><a href="/common/file/fileDown.do?accSn=2302220013&accTy=bbsctt&ordr=1">원문 다운로드</a>`, 'https://history.seoul.go.kr/archive/bbsctt/viewLink.do?bbscttSn=2302220013');
+ try {
+  const result=await p.send({action:'GET_DOWNLOAD_OPTIONS'});
+  assert.equal(result.options.length,1);
+  const metadata=result.options[0].context.metadata;
+  assert.deepEqual(metadata.authors,'배우성');
+  assert.equal(metadata.title_main,'‘지금 여기’에서 질문하는 서울역사');
+  assert.equal(metadata.journal_name,'서울과 역사');
+  assert.equal(metadata.volume,'112');
+  assert.equal(metadata.publisher,'서울역사편찬원');
+  assert.equal(metadata.year,'2022');
+  assert.equal(p.w.SickleCiteFileNaming.renderAcademicFilename(metadata,{}),'배우성, 「‘지금 여기’에서 질문하는 서울역사」, 『서울과 역사』 112, 서울역사편찬원, 2022.pdf');
+ } finally {p.w.close();}
+});
 test('word-internal title hyphens survive legacy parser fallback',async()=>{
  const p=page('<meta name="citation_title" content="JSON-LD와 deep-learning 연구"><meta name="citation_author" content="김철수">');
  try{assert.equal((await p.send({action:'GET_PAGE_INFO'})).pageInfo.metadata.title_main,'JSON-LD와 deep-learning 연구');}finally{p.w.close();}

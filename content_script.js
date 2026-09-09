@@ -926,11 +926,48 @@ function getLegacyMetadata() {
   return metadata;
 }
 
+// 서울역사편찬원 아카이브는 citation 메타 태그를 제공하지 않는다. 대신
+// 제목과 서지 항목을 상세 화면에 직접 표시한다. 이 정보를 별도로 읽어야
+// 원문 다운로드를 사이트가 붙인 기술 파일명이 아닌 인용식 파일명으로 저장할 수 있다.
+function parseSeoulHistoryArchive() {
+  if (fileNamingApi?.academicHost(location.href) !== 'history.seoul.go.kr') return {};
+
+  const title = collapse(fixTypography(
+    document.querySelector('.title-box h3, .contents-detail h3, h1')?.textContent || ''
+  ));
+  const fields = {};
+  for (const item of document.querySelectorAll('.info-box .summary li, .summary li')) {
+    const label = collapse(item.querySelector('b, strong')?.textContent || '').replace(/[\s:：]/g, '');
+    const value = collapse(fixTypography(item.querySelector('span')?.textContent || ''));
+    if (label && value) fields[label] = value;
+  }
+
+  const publication = fields['게재지'] || '';
+  const journalMatch = publication.match(/^(.+?)\s+(\d+)(?:\s*\((\d+)\))?\s*$/);
+  const rawMetadata = {
+    authors: fields['저자'] || '',
+    title_main: title,
+    title_sub: '',
+    journal_name: journalMatch?.[1] || publication,
+    volume: journalMatch?.[2] || '',
+    issue: journalMatch?.[3] || '',
+    publisher: collapse(fixTypography(document.querySelector('meta[name="author" i]')?.getAttribute('content') || '서울역사편찬원')),
+    year: (fields['발행'] || '').match(/(?:19|20)\d{2}/)?.[0] || '',
+    page_first: '',
+    page_last: '',
+    keywords: [],
+    abstract: ''
+  };
+  return verifyMetadata(rawMetadata);
+}
+
 function getMetadata() {
   let legacy = {};
   try { legacy = getLegacyMetadata(); } catch (_) {}
   const generic = globalThis.SickleCiteMetadata.extract(document);
   let metadata = globalThis.SickleCiteMetadata.merge(legacy, generic);
+  const seoulHistory = parseSeoulHistoryArchive();
+  if (seoulHistory.title_main) metadata = globalThis.SickleCiteMetadata.merge(seoulHistory, metadata);
   if (/[가-힣]/.test(generic.title_main || '') && !/[가-힣]/.test(metadata.title_main || '')) {
     metadata.title_main = generic.title_main; metadata.title_sub = '';
   }
