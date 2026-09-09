@@ -107,3 +107,12 @@ test("filename sanitizer removes forbidden characters and trailing dots", () => 
     "A B C 보고서.pdf"
   );
 });
+
+test("Safari download attributes omit only the PDF suffix", () => {
+  const safari = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
+  const chrome = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 Chrome/120.0 Safari/537.36";
+
+  assert.strictEqual(tools.withPdfExtension("논문.pdf.pdf"), "논문.pdf");
+  assert.strictEqual(tools.downloadAttributeFilename("논문.pdf.pdf", safari), "논문");
+  assert.strictEqual(tools.downloadAttributeFilename("논문.pdf", chrome), "논문.pdf");
+});

@@ -152,7 +152,10 @@ api?.runtime?.onMessage?.addListener((message, sender, sendResponse) => {
                 const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
                 const a = document.createElement('a');
                 a.setAttribute('data-sickle-generated', 'true');
-                a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+                const safari = /Safari\//.test(navigator.userAgent) &&
+                  !/(?:Chrome|Chromium|CriOS|FxiOS|EdgA|EdgiOS|OPR|OPiOS)\//.test(navigator.userAgent);
+                a.href = url; a.download = safari ? name.replace(/(?:\.pdf)+$/i, "") : name;
+                document.body.appendChild(a); a.click(); a.remove();
                 setTimeout(() => URL.revokeObjectURL(url), 60000);
                 return { success: true, method: 'viewer' };
               }
@@ -171,7 +174,11 @@ api?.runtime?.onMessage?.addListener((message, sender, sendResponse) => {
       const token = crypto.randomUUID();
       const job = { request: { url: url.href, options: {
         method: message.request?.options?.method === 'POST' ? 'POST' : 'GET',
-        body: message.request?.options?.method === 'POST' ? String(message.request?.options?.body || '') : undefined
+        body: message.request?.options?.method === 'POST' ? String(message.request?.options?.body || '') : undefined,
+        // Only use the content script's own page as a referrer; arbitrary
+        // referrers from page messages must not be persisted into a job.
+        referrer: /^https?:\/\//.test(sender.url || '') ? sender.url : undefined,
+        referrerPolicy: 'strict-origin-when-cross-origin'
       } }, filename: fileNaming.withPdfExtension(message.filename), createdAt: Date.now(), sourceTabId: sender.tab?.id ?? message.tabId };
       // Jobs expire; retaining at most ten also bounds local fallback storage.
       jobQueue = jobQueue.catch(() => {}).then(async () => {

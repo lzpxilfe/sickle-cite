@@ -1676,10 +1676,8 @@ async function handlePossibleDownload(event) {
   try {
     const filename = await filenameForContext(context);
     if (await downloadRequestWithFilename(request, filename)) return;
-    if (new URL(request.url, location.href).origin !== location.origin) {
-      const result = await openDownloadHelper(request, filename);
-      if (result?.success) return;
-    }
+    const result = await openDownloadHelper(request, filename, context);
+    if (result?.success) return;
     forcedDownloadControls.add(control);
     control.click();
   } finally {
@@ -1729,7 +1727,7 @@ async function downloadRequestWithFilename(request, filename) {
     const a = document.createElement('a');
     a.setAttribute('data-sickle-generated', 'true');
     a.href = blobUrl;
-    a.download = fileNamingApi.withPdfExtension(filename);
+    a.download = fileNamingApi.downloadAttributeFilename(filename, navigator.userAgent);
     document.body.appendChild(a);
     forcedDownloadControls.add(a);
     a.click();
@@ -1741,9 +1739,19 @@ async function downloadRequestWithFilename(request, filename) {
   }
 }
 
-function openDownloadHelper(request, filename) {
+function openDownloadHelper(request, filename, context) {
   return runtimeRequest({ type: 'SICKLE_CITE_OPEN_DOWNLOAD', filename,
-    request: { url: request.url, options: { ...request.options, body: request.options?.body?.toString() } } });
+    request: {
+      url: request.url,
+      options: {
+        ...request.options,
+        // Reproduce the page request as closely as Safari permits. Some DBs
+        // reject a request that does not identify the article detail page.
+        referrer: context?.pageUrl || location.href,
+        body: request.options?.body?.toString()
+      }
+    }
+  });
 }
 
 async function startNamedDownload(optionId, filename) {
@@ -1766,7 +1774,7 @@ async function startNamedDownload(optionId, filename) {
   }
 
   if (request) {
-    const result = await openDownloadHelper(request, filename);
+    const result = await openDownloadHelper(request, filename, context);
     if (result?.success) return result;
   }
   // Keep JavaScript/POST flows on their original page when no request is known.

@@ -122,7 +122,22 @@
   }
 
   function stripKnownExtension(value) {
-    return String(value || "").replace(/\.[A-Za-z0-9]{1,8}$/i, "");
+    return String(value || "")
+      .replace(/(?:\.pdf)+$/i, "")
+      .replace(/\.[A-Za-z0-9]{1,8}$/i, "");
+  }
+
+  function isSafariUserAgent(userAgent) {
+    const value = String(userAgent || "");
+    return /Safari\//.test(value) &&
+      !/(?:Chrome|Chromium|CriOS|FxiOS|EdgA|EdgiOS|OPR|OPiOS)\//.test(value);
+  }
+
+  // Safari appends the MIME-derived extension to Blob downloads. Giving it a
+  // filename that already ends in .pdf produces "paper.pdf.pdf" on macOS.
+  function downloadAttributeFilename(filename, userAgent) {
+    const complete = withPdfExtension(filename);
+    return isSafariUserAgent(userAgent) ? stripKnownExtension(complete) : complete;
   }
 
   function extensionFromFilename(value) {
@@ -405,6 +420,7 @@
     PDF_FILENAME_ENABLED_KEY,
     START_NAMED_DOWNLOAD_ACTION,
     deriveAttachmentTitle,
+    downloadAttributeFilename,
     extensionFromFilename,
     filenameFromUrl,
     getKciDownloadInfo,
@@ -414,6 +430,7 @@
     isAllowedDownloadItem,
     isAllowedUrl,
     isHeritageUrl,
+    isSafariUserAgent,
     isPdfFilenameEnabled,
     normalizeSpaces,
     normalizeStyleSettings,

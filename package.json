@@ -1,6 +1,6 @@
 {
   "name": "sickle-cite-safari",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "private": true,
   "scripts": {
     "test": "node tests/run-tests.js && node --test tests/context-tests.js tests/download-tests.js tests/integration-tests.js tests/metadata-tests.js"

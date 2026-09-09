@@ -103,6 +103,7 @@ test('click interception preserves modifiers, deduplicates and replays failure o
     downloadControls: () => [control], buildDownloadContext: () => ({}),
     sendDownloadContext() {}, downloadRequestFromControl: () => ({ url: 'https://www.kci.go.kr/pdf' }),
     filenameForContext: async () => 'paper.pdf',
+    openDownloadHelper: async () => null,
     downloadRequestWithFilename: () => { requests++; return new Promise(resolve => { resolveDownload = resolve; }); }
   };
   vm.createContext(sandbox);
@@ -124,6 +125,37 @@ test('click interception preserves modifiers, deduplicates and replays failure o
   assert.equal(replays, 1);
   assert.equal(requests, 1);
   assert.equal(sandbox.pendingDownloadControls.has(control), false);
+});
+
+test('failed page fetch opens the named helper before replaying the site button', async () => {
+  const source = fs.readFileSync(require.resolve('../content_script.js'), 'utf8');
+  const handler = source.slice(source.indexOf('async function handlePossibleDownload('), source.indexOf('function optionLabelFromContext('));
+  let helperCalls = 0;
+  let siteClicks = 0;
+  const control = { click() { siteClicks++; } };
+  const sandbox = {
+    URL, location: { href: 'https://www.kci.go.kr/article?id=1', origin: 'https://www.kci.go.kr' },
+    pdfFilenameFeatureEnabled: true, isPdfFilenameSupportedPage: () => true,
+    safeClosest: () => control, isLikelyDownloadControl: () => true,
+    forcedDownloadControls: new WeakSet(), pendingDownloadControls: new WeakSet(),
+    lastDownloadContextSentAt: 0, DOWNLOAD_CONTEXT_DEBOUNCE_MS: 300,
+    downloadControls: () => [control], buildDownloadContext: () => ({ pageUrl: 'https://www.kci.go.kr/article?id=1' }),
+    sendDownloadContext() {}, downloadRequestFromControl: () => ({ url: 'https://www.kci.go.kr/pdf' }),
+    filenameForContext: async () => '김철수, 「논문」.pdf', downloadRequestWithFilename: async () => false,
+    openDownloadHelper: async (request, filename, context) => {
+      helperCalls++;
+      assert.equal(request.url, 'https://www.kci.go.kr/pdf');
+      assert.equal(filename, '김철수, 「논문」.pdf');
+      assert.equal(context.pageUrl, 'https://www.kci.go.kr/article?id=1');
+      return { success: true, method: 'helper' };
+    }
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(handler, sandbox);
+  const event = { type: 'click', preventDefault() {}, stopPropagation() {} };
+  await sandbox.handlePossibleDownload(event);
+  assert.equal(helperCalls, 1);
+  assert.equal(siteClicks, 0);
 });
 
 test('PDF.js file parameter resolves the actual document without executing scripts',async()=>{

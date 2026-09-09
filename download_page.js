@@ -12,11 +12,12 @@
     const response = await call(api.runtime, 'sendMessage', { type: 'SICKLE_CITE_GET_DOWNLOAD_JOB', token: location.hash.slice(1) });
     if (!response?.success) throw new Error(response?.error || '저장 요청을 찾지 못했습니다.');
     const { job } = response;
-    document.getElementById('filename').textContent = job.filename;
+    const filename = globalThis.SickleCiteFileNaming.withPdfExtension(job.filename);
+    document.getElementById('filename').textContent = filename;
     const copy = document.getElementById('copy');
     copy.hidden = false;
     copy.onclick = async () => {
-      try { await navigator.clipboard.writeText(job.filename); copy.textContent = '복사됨'; }
+      try { await navigator.clipboard.writeText(filename); copy.textContent = '복사됨'; }
       catch (_) { status.textContent = '위 파일명을 선택하여 복사해 주세요.'; }
     };
     const source = document.getElementById('source');
@@ -32,7 +33,7 @@
     const url = URL.createObjectURL(blob);
     const save = document.getElementById('save');
     save.href = url;
-    save.download = job.filename;
+    save.download = globalThis.SickleCiteFileNaming.downloadAttributeFilename(filename, navigator.userAgent);
     save.hidden = false;
     status.textContent = 'PDF가 준비되었습니다. 저장 버튼을 눌러 인용 파일명으로 저장하세요.';
     save.addEventListener('click', () => { status.textContent = '저장을 요청했습니다. Safari 다운로드 목록에서 결과를 확인하세요.'; });

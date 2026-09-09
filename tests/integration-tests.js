@@ -44,11 +44,20 @@ test('standalone Safari save page exposes a named file only after a verified PDF
  const html=fs.readFileSync(require.resolve('../download.html'),'utf8');
  const dom=new JSDOM(html,{url:'https://extension.test/download.html#job',runScripts:'outside-only'});const w=dom.window;
  w.browser={runtime:{sendMessage:async()=>({success:true,job:{request:{url:'https://www.kci.go.kr/a.pdf'},filename:'김철수, 논문.pdf'}})}};
+ w.SickleCiteFileNaming=require('../filename_tools');
  w.SickleCiteDownloads={fetchPdf:async()=>new Blob(['%PDF-1.7'])};w.URL.createObjectURL=()=> 'blob:verified-pdf';w.URL.revokeObjectURL=()=>{};
  try{await w.eval(fs.readFileSync(require.resolve('../download_page.js'),'utf8'));assert.equal(w.document.getElementById('save').hidden,false);assert.equal(w.document.getElementById('save').download,'김철수, 논문.pdf');assert.match(w.document.getElementById('status').textContent,/준비/);}finally{w.close();}
 });
+test('standalone Safari save page leaves PDF suffix to Safari exactly once',async()=>{
+ const html=fs.readFileSync(require.resolve('../download.html'),'utf8');
+ const dom=new JSDOM(html,{url:'https://extension.test/download.html#job',runScripts:'outside-only'});const w=dom.window;
+ Object.defineProperty(w.navigator,'userAgent',{configurable:true,value:'Mozilla/5.0 Version/17.0 Safari/605.1.15'});
+ w.browser={runtime:{sendMessage:async()=>({success:true,job:{request:{url:'https://www.kci.go.kr/a.pdf'},filename:'논문.pdf.pdf'}})}};
+ w.SickleCiteFileNaming=require('../filename_tools');w.SickleCiteDownloads={fetchPdf:async()=>new Blob(['%PDF-1.7'])};w.URL.createObjectURL=()=> 'blob:verified-pdf';w.URL.revokeObjectURL=()=>{};
+ try{await w.eval(fs.readFileSync(require.resolve('../download_page.js'),'utf8'));assert.equal(w.document.getElementById('filename').textContent,'논문.pdf');assert.equal(w.document.getElementById('save').download,'논문');}finally{w.close();}
+});
 test('standalone save page leaves no download link when authentication fails',async()=>{
  const dom=new JSDOM(fs.readFileSync(require.resolve('../download.html'),'utf8'),{url:'https://extension.test/download.html#job',runScripts:'outside-only'});const w=dom.window;
- w.browser={runtime:{sendMessage:async()=>({success:true,job:{request:{url:'https://www.kci.go.kr/a.pdf'},filename:'논문.pdf'}})}};w.SickleCiteDownloads={fetchPdf:async()=>null};
+ w.browser={runtime:{sendMessage:async()=>({success:true,job:{request:{url:'https://www.kci.go.kr/a.pdf'},filename:'논문.pdf'}})}};w.SickleCiteFileNaming=require('../filename_tools');w.SickleCiteDownloads={fetchPdf:async()=>null};
  try{await w.eval(fs.readFileSync(require.resolve('../download_page.js'),'utf8'));assert.equal(w.document.getElementById('save').hidden,true);assert.match(w.document.getElementById('status').textContent,/로그인/);assert.equal(w.document.getElementById('copy').hidden,false);}finally{w.close();}
 });
