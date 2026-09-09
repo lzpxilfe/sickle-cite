@@ -49,7 +49,10 @@ function collapse(s) { return s.replace(/\s+/g, ' ').trim(); }
 
 // 인용 및 구분자 기호 교정
 function fixTypography(text) {
-  let s = text.trim();
+  let s = String(text || '')
+    .replace(/<\s*\/?\s*(?:em|strong|b|i|span|sup|sub|mark)\b[^>]*>/gi, '')
+    .replace(/〈\s*\/?\s*(?:em|strong|b|i|span|sup|sub|mark)\b[^〉]*〉/gi, '')
+    .trim();
   s = s.replace(/`([^`]+)`/g, '‘$1’');
   s = s.replace(/′([^`]+)′/g, '‘$1’');
   s = s.replace(/'([^']+)'/g, '‘$1’');

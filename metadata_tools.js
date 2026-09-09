@@ -1,6 +1,9 @@
 (function (global) {
   'use strict';
-  const clean = value => String(typeof value === 'string' || typeof value === 'number' ? value : '').replace(/\s+/g, ' ').trim();
+  const clean = value => String(typeof value === 'string' || typeof value === 'number' ? value : '')
+    .replace(/<\s*\/?\s*(?:em|strong|b|i|span|sup|sub|mark)\b[^>]*>/gi, '')
+    .replace(/〈\s*\/?\s*(?:em|strong|b|i|span|sup|sub|mark)\b[^〉]*〉/gi, '')
+    .replace(/\s+/g, ' ').trim();
   const present = value => Array.isArray(value) ? value.length > 0 : Boolean(clean(value));
   function merge(primary, fallback) {
     const result = { ...fallback };

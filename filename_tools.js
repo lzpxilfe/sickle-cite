@@ -29,8 +29,15 @@
     pageRangeUnit: "쪽"
   };
 
+  function stripInlineMarkup(value) {
+    return String(value || "")
+      .replace(/<\s*\/?\s*(?:em|strong|b|i|span|sup|sub|mark)\b[^>]*>/gi, "")
+      .replace(/〈\s*\/?\s*(?:em|strong|b|i|span|sup|sub|mark)\b[^〉]*〉/gi, "")
+      .replace(/&lt;\s*\/?\s*(?:em|strong|b|i|span|sup|sub|mark)\b[^&]*&gt;/gi, "");
+  }
+
   function normalizeSpaces(value) {
-    return String(value || "").replace(/\s+/g, " ").trim();
+    return stripInlineMarkup(value).replace(/\s+/g, " ").trim();
   }
 
   function normalizeUrl(value) {
@@ -300,14 +307,17 @@
     const volume = normalizeSpaces(meta && meta.volume);
     const issue = normalizeSpaces(meta && meta.issue);
     const hasVol = volume !== "";
-    const hasIss = issue !== "";
+    // KCI sometimes puts the same serial value in both Vol. and No. fields
+    // (for example, Vol.48 No.48). Korean citation output should show it once.
+    const displayedIssue = volume === issue ? "" : issue;
+    const hasIss = displayedIssue !== "";
 
     if (hasVol && hasIss) {
-      return `${style.volumePrefix}${volume}${style.volumeSuffix}${style.volumeIssueSeparator}${style.issuePrefix}${issue}${style.issueSuffix}`.trim();
+      return `${style.volumePrefix}${volume}${style.volumeSuffix}${style.volumeIssueSeparator}${style.issuePrefix}${displayedIssue}${style.issueSuffix}`.trim();
     }
 
     if (hasVol || hasIss) {
-      return `${style.eitherPrefix}${volume}${issue}${style.eitherSuffix}`.trim();
+      return `${style.eitherPrefix}${volume}${displayedIssue}${style.eitherSuffix}`.trim();
     }
 
     return "";
@@ -439,6 +449,7 @@
     renderFilename,
     renderReportFilename,
     sanitizeFilenameBase,
+    stripInlineMarkup,
     stripKnownExtension,
     withPdfExtension
   };

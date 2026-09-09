@@ -130,3 +130,18 @@ test("KCI citation filename keeps the full citation and one PDF suffix", () => {
     "안정준, 「高句麗의 樂浪·帶方 故地 영역화 과정과 지배방식」, 『한국고대사연구』 69, 한국고대사학회, 2013.pdf"
   );
 });
+
+test("KCI markup and duplicate serial number do not leak into filenames", () => {
+  assert.strictEqual(
+    tools.renderAcademicFilename({
+      authors: ["<em><em>안정준</em></em>"],
+      title_main: "帶方郡의 설치 의도와 長期 存續의 배경",
+      journal_name: "고조선단군학",
+      volume: "48",
+      issue: "48",
+      publisher: "고조선단군학회",
+      year: "2022"
+    }),
+    "안정준, 「帶方郡의 설치 의도와 長期 存續의 배경」, 『고조선단군학』 48, 고조선단군학회, 2022.pdf"
+  );
+});
