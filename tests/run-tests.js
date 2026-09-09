@@ -116,3 +116,17 @@ test("Safari download attributes omit only the PDF suffix", () => {
   assert.strictEqual(tools.downloadAttributeFilename("논문.pdf.pdf", safari), "논문");
   assert.strictEqual(tools.downloadAttributeFilename("논문.pdf", chrome), "논문.pdf");
 });
+
+test("KCI citation filename keeps the full citation and one PDF suffix", () => {
+  assert.strictEqual(
+    tools.renderAcademicFilename({
+      authors: ["안정준"],
+      title_main: "高句麗의 樂浪·帶方 故地 영역화 과정과 지배방식",
+      journal_name: "한국고대사연구",
+      volume: "69",
+      publisher: "한국고대사학회",
+      year: "2013"
+    }),
+    "안정준, 「高句麗의 樂浪·帶方 故地 영역화 과정과 지배방식」, 『한국고대사연구』 69, 한국고대사학회, 2013.pdf"
+  );
+});
